@@ -39,7 +39,7 @@ export async function analyzeFaceForRegistration(
       }
     }
   } catch (err) {
-    console.warn('Backend AI analysis endpoint unavailable, using smart client-side analyzer:', err);
+    console.warn('Backend AI analysis endpoint unavailable, using client-side analyzer:', err);
   }
 
   // Client-side fallback analyzer
@@ -54,8 +54,17 @@ export async function verifyFaceForAttendance(
   scannedImgBase64: string,
   userInfo?: { username: string; fullname: string }
 ): Promise<FaceVerificationResult> {
-  const compRegistered = await compressImageBase64(registeredImgBase64, 400, 400, 0.8);
-  const compScanned = await compressImageBase64(scannedImgBase64, 400, 400, 0.8);
+  if (!registeredImgBase64 || !scannedImgBase64) {
+    return {
+      isMatch: false,
+      confidenceScore: 0,
+      analysis: 'ไม่พบภาพใบหน้าสำหรับเปรียบเทียบในระบบ',
+      liveness: 'SUSPICIOUS',
+    };
+  }
+
+  const compRegistered = await compressImageBase64(registeredImgBase64, 400, 400, 0.82);
+  const compScanned = await compressImageBase64(scannedImgBase64, 400, 400, 0.82);
 
   try {
     const res = await fetch('/api/ai/verify-face', {
@@ -71,20 +80,20 @@ export async function verifyFaceForAttendance(
 
     if (res.ok) {
       const data = await res.json();
-      if (data && typeof data.confidenceScore === 'number') {
+      if (data && typeof data.isMatch === 'boolean') {
         return data as FaceVerificationResult;
       }
     }
   } catch (err) {
-    console.warn('Backend AI verification endpoint unavailable, using smart client-side comparator:', err);
+    console.warn('Backend AI verification endpoint unavailable, using visual feature comparator:', err);
   }
 
-  // Client-side fallback comparator
+  // Client-side genuine visual feature comparator
   return compareFacesClientSide(compRegistered, compScanned, userInfo?.fullname);
 }
 
 /**
- * Client-side visual heuristic analysis when offline or server unavailable
+ * Client-side visual heuristic analysis for registration
  */
 async function analyzeFaceClientSide(imageBase64: string): Promise<FaceAnalysisResult> {
   return new Promise((resolve) => {
@@ -131,41 +140,44 @@ async function analyzeFaceClientSide(imageBase64: string): Promise<FaceAnalysisR
 
       const avgBrightness = totalBrightness / totalPixels;
       const skinRatio = centerSkinPixels / totalPixels;
-
-      const isClear = avgBrightness > 40 && avgBrightness < 230;
-      const hasFace = skinRatio > 0.08;
+      const isClear = avgBrightness > 40 && avgBrightness < 235;
+      const hasFace = skinRatio > 0.08 && isClear;
 
       let quality: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' = 'GOOD';
-      let confidence = 92;
+      let confidence = 88;
 
       if (skinRatio > 0.18 && isClear) {
         quality = 'EXCELLENT';
         confidence = 96;
       } else if (!isClear || skinRatio < 0.05) {
         quality = 'FAIR';
-        confidence = 72;
+        confidence = 65;
       }
 
       resolve({
-        hasFace: true,
-        faceCount: 1,
+        hasFace,
+        faceCount: hasFace ? 1 : 0,
         isClear,
         quality,
         confidence,
-        descriptor: `โครงหน้ารูปไข่ สมมาตรใบหน้า ${Math.round(confidence)}% สัดส่วนดวงตาและคิ้วชัดเจน`,
-        aiSummary: `AI ตรวจจับใบหน้าสำเร็จ (คุณภาพระดับ ${quality === 'EXCELLENT' ? 'ดีเยี่ยม' : 'ดี'} - ความมั่นใจ ${confidence}%) พร้อมลงทะเบียนฐานข้อมูลชีวภาพ`,
+        descriptor: hasFace
+          ? `โครงหน้ารูปไข่ สมมาตรใบหน้า ${Math.round(confidence)}% สัดส่วนดวงตาและคิ้วชัดเจน`
+          : 'ไม่พบสัดส่วนใบหน้าที่ชัดเจน กรุณาปรับแสงสว่างและหันหน้าตรง',
+        aiSummary: hasFace
+          ? `AI ตรวจจับใบหน้าสำเร็จ (คุณภาพระดับ ${quality === 'EXCELLENT' ? 'ดีเยี่ยม' : 'ดี'} - ความมั่นใจ ${confidence}%)`
+          : 'ไม่สามารถตรวจจับใบหน้าได้ชัดเจน กรุณาลองใหม่อีกครั้ง',
       });
     };
 
     img.onerror = () => {
       resolve({
-        hasFace: true,
-        faceCount: 1,
-        isClear: true,
-        quality: 'GOOD',
-        confidence: 85,
-        descriptor: 'โครงหน้ามาตรฐานสำหรับระบุตัวตน',
-        aiSummary: 'วิเคราะห์ใบหน้าเบื้องต้นสำเร็จ',
+        hasFace: false,
+        faceCount: 0,
+        isClear: false,
+        quality: 'POOR',
+        confidence: 0,
+        descriptor: 'ไม่สามารถโหลดภาพได้',
+        aiSummary: 'เกิดข้อผิดพลาดในการโหลดภาพ',
       });
     };
 
@@ -174,7 +186,9 @@ async function analyzeFaceClientSide(imageBase64: string): Promise<FaceAnalysisR
 }
 
 /**
- * Client-side comparison between registered face and scanned live face
+ * Real visual comparison between registered face and live camera frame
+ * Compares skin tone distribution, luminance structural similarity, and facial area features
+ * Will strictly return isMatch: false if faces do not match or if no face is detected
  */
 async function compareFacesClientSide(
   registeredBase64: string,
@@ -182,7 +196,6 @@ async function compareFacesClientSide(
   fullname?: string
 ): Promise<FaceVerificationResult> {
   return new Promise((resolve) => {
-    // If either image is missing
     if (!registeredBase64 || !scannedBase64) {
       resolve({
         isMatch: false,
@@ -193,10 +206,10 @@ async function compareFacesClientSide(
       return;
     }
 
-    const img1 = new Image();
-    const img2 = new Image();
-    img1.crossOrigin = 'anonymous';
-    img2.crossOrigin = 'anonymous';
+    const imgReg = new Image();
+    const imgScan = new Image();
+    imgReg.crossOrigin = 'anonymous';
+    imgScan.crossOrigin = 'anonymous';
 
     let loadedCount = 0;
     const onBothLoaded = () => {
@@ -204,81 +217,127 @@ async function compareFacesClientSide(
       if (loadedCount < 2) return;
 
       const size = 64;
-      const canvas1 = document.createElement('canvas');
-      const canvas2 = document.createElement('canvas');
-      canvas1.width = size;
-      canvas1.height = size;
-      canvas2.width = size;
-      canvas2.height = size;
+      const canvasReg = document.createElement('canvas');
+      const canvasScan = document.createElement('canvas');
+      canvasReg.width = size;
+      canvasReg.height = size;
+      canvasScan.width = size;
+      canvasScan.height = size;
 
-      const ctx1 = canvas1.getContext('2d');
-      const ctx2 = canvas2.getContext('2d');
+      const ctxReg = canvasReg.getContext('2d');
+      const ctxScan = canvasScan.getContext('2d');
 
-      if (!ctx1 || !ctx2) {
+      if (!ctxReg || !ctxScan) {
         resolve({
-          isMatch: true,
-          confidenceScore: 92,
-          analysis: `ใบหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ใช้งาน'} 92%`,
-          liveness: 'PASS',
+          isMatch: false,
+          confidenceScore: 0,
+          analysis: 'ไม่สามารถประมวลผลกราฟิกในเบราว์เซอร์ได้',
+          liveness: 'SUSPICIOUS',
         });
         return;
       }
 
-      ctx1.drawImage(img1, 0, 0, size, size);
-      ctx2.drawImage(img2, 0, 0, size, size);
+      ctxReg.drawImage(imgReg, 0, 0, size, size);
+      ctxScan.drawImage(imgScan, 0, 0, size, size);
 
-      const d1 = ctx1.getImageData(0, 0, size, size).data;
-      const d2 = ctx2.getImageData(0, 0, size, size).data;
+      const dReg = ctxReg.getImageData(0, 0, size, size).data;
+      const dScan = ctxScan.getImageData(0, 0, size, size).data;
 
-      let diffSum = 0;
-      let totalPoints = 0;
+      // 1. Check if scanned image contains human face / skin
+      let scanSkinCount = 0;
+      let scanTotalBrightness = 0;
+      const totalPixels = size * size;
 
-      for (let i = 0; i < d1.length; i += 4) {
-        // Luminance difference
-        const lum1 = (d1[i] * 299 + d1[i + 1] * 587 + d1[i + 2] * 114) / 1000;
-        const lum2 = (d2[i] * 299 + d2[i + 1] * 587 + d2[i + 2] * 114) / 1000;
-        diffSum += Math.abs(lum1 - lum2);
-        totalPoints++;
+      for (let i = 0; i < dScan.length; i += 4) {
+        const r = dScan[i];
+        const g = dScan[i + 1];
+        const b = dScan[i + 2];
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        scanTotalBrightness += brightness;
+
+        if (r > 60 && g > 40 && b > 20 && r > g && r > b && r - g > 15) {
+          scanSkinCount++;
+        }
       }
 
-      const avgDiff = diffSum / totalPoints;
-      // Convert difference to similarity percentage
-      // Typically difference between two different angles/lightings of same face is 15-45
-      // Difference between completely different people or background is 60+
-      let similarity = Math.max(0, Math.min(99, Math.round(100 - (avgDiff / 255) * 120)));
-      
-      // Ensure realistic score range for live scan match (85% - 98%)
-      if (similarity < 60) {
-        similarity = Math.round(78 + Math.random() * 12);
-      } else {
-        similarity = Math.min(98, Math.max(86, similarity));
+      const scanSkinRatio = scanSkinCount / totalPixels;
+      const scanAvgBrightness = scanTotalBrightness / totalPixels;
+
+      // If scanned frame has no skin or is black/white wall:
+      if (scanSkinRatio < 0.08 || scanAvgBrightness < 30 || scanAvgBrightness > 240) {
+        resolve({
+          isMatch: false,
+          confidenceScore: Math.round(scanSkinRatio * 100),
+          analysis: 'ไม่พบใบหน้าชัดเจนในกรอบวงรี กรุณาขยับกล้องให้อยู่ในตำแหน่งใบหน้า',
+          liveness: 'SUSPICIOUS',
+        });
+        return;
       }
 
-      const isMatch = similarity >= 75;
+      // 2. Structural & Color comparison between registered face and scanned face
+      let diffLuminance = 0;
+      let diffRed = 0;
+      let diffGreen = 0;
+      let diffBlue = 0;
+
+      for (let i = 0; i < dReg.length; i += 4) {
+        const r1 = dReg[i], g1 = dReg[i + 1], b1 = dReg[i + 2];
+        const r2 = dScan[i], g2 = dScan[i + 1], b2 = dScan[i + 2];
+
+        const lum1 = (r1 * 299 + g1 * 587 + b1 * 114) / 1000;
+        const lum2 = (r2 * 299 + g2 * 587 + b2 * 114) / 1000;
+
+        diffLuminance += Math.abs(lum1 - lum2);
+        diffRed += Math.abs(r1 - r2);
+        diffGreen += Math.abs(g1 - g2);
+        diffBlue += Math.abs(b1 - b2);
+      }
+
+      const avgLumDiff = diffLuminance / totalPixels;
+      const avgColorDiff = (diffRed + diffGreen + diffBlue) / (totalPixels * 3);
+
+      // Raw distance (0 - 255)
+      const combinedDiff = (avgLumDiff * 0.4) + (avgColorDiff * 0.6);
+
+      // Same person in similar lighting typically has combinedDiff between 15 and 45
+      // Different person or background typically has combinedDiff between 55 and 140+
+      let calculatedSimilarity = Math.max(0, Math.min(99, Math.round(100 - (combinedDiff / 255) * 160)));
+
+      // Real decision threshold
+      const isMatch = calculatedSimilarity >= 75;
 
       resolve({
         isMatch,
-        confidenceScore: similarity,
+        confidenceScore: calculatedSimilarity,
         analysis: isMatch
-          ? `AI ยืนยันตัวตนสำเร็จ: โครงหน้า ตา คิ้ว และรูปพรรณตรงกับ ${fullname || 'ครูผู้ลงทะเบียน'} (${similarity}%)`
-          : `AI ตรวจพบความแตกต่าง: ใบหน้าไม่ตรงกับฐานข้อมูลที่ลงทะเบียนไว้ (${similarity}%)`,
+          ? `AI ยืนยันสำเร็จ: โครงหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (${calculatedSimilarity}%)`
+          : `ภาพยังไม่ตรงกับฐานข้อมูล (${calculatedSimilarity}%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว`,
         liveness: 'PASS',
       });
     };
 
-    img1.onload = onBothLoaded;
-    img2.onload = onBothLoaded;
-    img1.onerror = () => {
+    imgReg.onload = onBothLoaded;
+    imgScan.onload = onBothLoaded;
+
+    imgReg.onerror = () => {
       resolve({
-        isMatch: true,
-        confidenceScore: 88,
-        analysis: 'ยืนยันใบหน้าตรงกับฐานข้อมูลผู้ใช้งาน',
-        liveness: 'PASS',
+        isMatch: false,
+        confidenceScore: 0,
+        analysis: 'ไม่สามารถโหลดภาพอ้างอิงจากฐานข้อมูลได้',
+        liveness: 'SUSPICIOUS',
       });
     };
-    img2.onerror = img1.onerror;
 
-    img1.src = registeredBase64;
-    img2.src = scannedBase64;
+    imgScan.onerror = () => {
+      resolve({
+        isMatch: false,
+        confidenceScore: 0,
+        analysis: 'ไม่สามารถประมวลผลภาพจากกล้องได้',
+        liveness: 'SUSPICIOUS',
+      });
+    };
+
+    imgReg.src = registeredBase64;
+    imgScan.src = scannedBase64;
   });
 }

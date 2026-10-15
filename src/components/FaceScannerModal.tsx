@@ -1,8 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  Camera,
   MapPin,
-  ShieldCheck,
   AlertCircle,
   RefreshCw,
   X,
@@ -11,7 +9,8 @@ import {
   Sparkles,
   Smartphone,
   Check,
-  ArrowRight
+  Save,
+  UserCheck
 } from 'lucide-react';
 import { SchoolConfig, UserAccount } from '../types';
 import { getOrGenerateDeviceMac, verifyDeviceMac, getDeviceInfoLabel } from '../utils/deviceMac';
@@ -48,18 +47,23 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scanTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isAnalyzingRef = useRef<boolean>(false);
 
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanStep, setScanStep] = useState<string>('');
+
+  // Oval state: 'IDLE' | 'SCANNING' | 'GREEN' | 'RED'
+  const [ovalStatus, setOvalStatus] = useState<'IDLE' | 'SCANNING' | 'GREEN' | 'RED'>('IDLE');
+  const [statusMessage, setStatusMessage] = useState<string>('กำลังเตรียมระบบสแกนใบหน้าด้วย AI...');
   const [capturedSnapshot, setCapturedSnapshot] = useState<string | null>(null);
 
   // Verification Results
   const [faceVerified, setFaceVerified] = useState<boolean>(false);
   const [verificationResult, setVerificationResult] = useState<FaceVerificationResult | null>(null);
-  const [verificationError, setVerificationError] = useState<string | null>(null);
-  const [autoSubmitCountdown, setAutoSubmitCountdown] = useState<number | null>(null);
+  const [scanAttemptCount, setScanAttemptCount] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState(false);
 
   // 1. Device MAC State
   const currentMac = getOrGenerateDeviceMac();
@@ -80,22 +84,22 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
       osc.type = 'sine';
       if (success) {
         osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+        osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.14); // A5
         gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.32);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.35);
+        osc.stop(audioCtx.currentTime + 0.32);
       } else {
         osc.frequency.setValueAtTime(320, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.18);
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
+        osc.stop(audioCtx.currentTime + 0.25);
       }
     } catch {
       // Audio context may be restricted by autoplay policy
@@ -158,6 +162,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
   // Start Camera Stream
   const startCamera = async () => {
     setCameraError(null);
+    setCameraReady(false);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -184,6 +189,10 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
       stream.getTracks().forEach((track) => track.stop());
       setStream(null);
     }
+    if (scanTimerRef.current) {
+      clearInterval(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
   };
 
   // Reset state when modal opens/closes
@@ -193,9 +202,12 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
       fetchLocation();
       setFaceVerified(false);
       setVerificationResult(null);
-      setVerificationError(null);
+      setOvalStatus('IDLE');
+      setStatusMessage('กำลังค้นหาและตรวจจับใบหน้าในวงรี...');
       setCapturedSnapshot(null);
-      setAutoSubmitCountdown(null);
+      setScanAttemptCount(0);
+      setIsSaving(false);
+      isAnalyzingRef.current = false;
     } else {
       stopCamera();
     }
@@ -205,165 +217,165 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
     };
   }, [isOpen]);
 
-  // Auto-submit countdown after face matches
-  useEffect(() => {
-    if (autoSubmitCountdown === null) return;
-
-    if (autoSubmitCountdown <= 0) {
-      confirmAttendanceSubmission();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setAutoSubmitCountdown((prev) => (prev !== null ? prev - 1 : null));
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [autoSubmitCountdown]);
-
   // Location validity
   const isLocationValid = distance !== null && config.radius ? distance <= config.radius : true;
 
-  // 3. Trigger AI Face Scan & Verification
-  const handleScanFaceWithAI = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  // Single AI Face Scan & Verification Cycle
+  const performSingleScan = useCallback(async () => {
+    if (isAnalyzingRef.current || faceVerified) return;
+    if (!videoRef.current || !canvasRef.current || !cameraReady) return;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    setIsScanning(true);
-    setVerificationError(null);
-    setScanStep('กำลังจับภาพใบหน้าสดจากกล้อง...');
-
-    canvas.width = video.videoWidth || 480;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setIsScanning(false);
+    // Check if user has registered face in DB
+    const registeredFace = user.img || '';
+    if (!registeredFace) {
+      setOvalStatus('RED');
+      setStatusMessage('⚠️ ไม่พบข้อมูลภาพใบหน้าในฐานข้อมูล กรุณาลงทะเบียนใบหน้าก่อน');
       return;
     }
 
-    // Mirror image for natural selfie orientation
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Add watermark banner
-    ctx.fillStyle = 'rgba(124, 58, 237, 0.85)';
-    ctx.fillRect(0, canvas.height - 35, canvas.width, 35);
-    ctx.font = '13px Sarabun, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(
-      `AI Biometric Scan: ${user.fullname} | ${new Date().toLocaleTimeString('th-TH')}`,
-      10,
-      canvas.height - 12
-    );
-
-    const snapshot = canvas.toDataURL('image/jpeg', 0.82);
-    setCapturedSnapshot(snapshot);
+    isAnalyzingRef.current = true;
+    setOvalStatus((prev) => (prev === 'GREEN' ? 'GREEN' : 'SCANNING'));
 
     try {
-      setScanStep('AI กำลังวิเคราะห์เปรียบเทียบใบหน้ากับฐานข้อมูล...');
+      // Capture frame centered on the face
+      canvas.width = 480;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        isAnalyzingRef.current = false;
+        return;
+      }
 
-      // Call AI verification against registered face
-      const registeredFace = user.img || '';
+      // Mirror horizontally for selfie view
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Watermark
+      ctx.fillStyle = 'rgba(124, 58, 237, 0.85)';
+      ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+      ctx.font = '12px Sarabun, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(
+        `AI Biometric: ${user.fullname} | ${new Date().toLocaleTimeString('th-TH')}`,
+        10,
+        canvas.height - 10
+      );
+
+      const snapshot = canvas.toDataURL('image/jpeg', 0.82);
+      setCapturedSnapshot(snapshot);
+
+      // Perform genuine AI face verification
       const aiResult = await verifyFaceForAttendance(registeredFace, snapshot, {
         username: user.username,
         fullname: user.fullname
       });
 
       setVerificationResult(aiResult);
+      setScanAttemptCount((prev) => prev + 1);
 
       if (aiResult.isMatch) {
-        // AI Face Matched!
+        // AI Face Matched! -> Oval turns GREEN, Pass!
         setFaceVerified(true);
-        setScanStep(`✓ ตรวจสอบสำเร็จ! ใบหน้าตรงกัน ${aiResult.confidenceScore}%`);
+        setOvalStatus('GREEN');
+        setStatusMessage(`✓ ตรวจสอบผ่าน: ใบหน้าตรงกับฐานข้อมูล (${aiResult.confidenceScore}%)`);
         playAudioChime(true);
-        // Start a gentle 3-second auto countdown to submit
-        setAutoSubmitCountdown(3);
+
+        // Stop continuous loop once verified
+        if (scanTimerRef.current) {
+          clearInterval(scanTimerRef.current);
+          scanTimerRef.current = null;
+        }
       } else {
-        // AI Face Not Matched!
+        // AI Face Did Not Match! -> Oval turns RED, keep scanning
         setFaceVerified(false);
-        setVerificationError(aiResult.analysis || 'ใบหน้าไม่ตรงกับฐานข้อมูลที่ลงทะเบียนไว้');
-        setScanStep('❌ ตรวจสอบไม่ผ่าน: ใบหน้าไม่ตรงกับฐานข้อมูล');
+        setOvalStatus('RED');
+        setStatusMessage(
+          aiResult.analysis ||
+            `ภาพยังไม่ตรงกับฐานข้อมูล (${aiResult.confidenceScore}%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว`
+        );
         playAudioChime(false);
       }
     } catch (err) {
-      console.error('Scan error:', err);
-      // Fallback fallback pass
-      const fallbackResult: FaceVerificationResult = {
-        isMatch: true,
-        confidenceScore: 91,
-        analysis: 'ยืนยันใบหน้าตรงกับฐานข้อมูลสำเร็จ',
-        liveness: 'PASS'
-      };
-      setVerificationResult(fallbackResult);
-      setFaceVerified(true);
-      setScanStep('✓ ยืนยันตัวตนสำเร็จ!');
-      playAudioChime(true);
-      setAutoSubmitCountdown(3);
+      console.warn('Real scan check error:', err);
+      setOvalStatus('RED');
+      setStatusMessage('กำลังวิเคราะห์ใบหน้า... กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว');
     } finally {
-      setIsScanning(false);
+      isAnalyzingRef.current = false;
     }
-  };
+  }, [faceVerified, cameraReady, user.img, user.username, user.fullname]);
 
-  // Final Action: Confirm and Submit Attendance Record
-  // Only accessible when all 3 checks are satisfied
-  const confirmAttendanceSubmission = () => {
-    if (!macCheck.match) {
-      Swal.fire({
-        title: 'ไม่อนุญาตให้ลงเวลา!',
-        text: 'อุปกรณ์นี้ไม่ใช่เครื่องที่ลงทะเบียนไว้ (MAC Address ไม่ตรงกัน)',
-        icon: 'error'
-      });
-      return;
-    }
+  // Continuous auto-scan loop: scans every 1.5s until face matches (GREEN)
+  useEffect(() => {
+    if (!isOpen || !cameraReady || faceVerified) return;
 
-    if (!isLocationValid) {
-      Swal.fire({
-        title: 'อยู่นอกพื้นที่ที่กำหนด!',
-        html: `คุณอยู่ห่างจากโรงเรียน <b>${distance} เมตร</b><br>ซึ่งเกินรัศมีที่กำหนด (${config.radius} เมตร)<br>กรุณาอยู่ในพื้นที่โรงเรียนเพื่อลงเวลา`,
-        icon: 'warning'
-      });
-      return;
-    }
+    // Run first scan shortly after camera is ready
+    const initialTimer = setTimeout(() => {
+      performSingleScan();
+    }, 700);
 
-    if (!faceVerified || !verificationResult?.isMatch) {
-      Swal.fire({
-        title: 'ยังไม่ได้ยืนยันใบหน้า!',
-        text: 'กรุณาสแกนใบหน้าด้วย AI ให้ผ่านก่อน จึงจะสามารถลงเวลาได้',
-        icon: 'warning'
-      });
-      return;
-    }
-
-    stopCamera();
-    onSuccess({
-      lat: coords?.lat || 0,
-      lng: coords?.lng || 0,
-      distance: distance || 0,
-      macAddress: currentMac,
-      faceSnapshot: capturedSnapshot || user.img || '',
-      aiVerification: {
-        isMatch: true,
-        confidenceScore: verificationResult?.confidenceScore || 95,
-        analysis: verificationResult?.analysis || 'AI Face Verification สำเร็จ'
+    // Continue scanning periodically until match is achieved
+    scanTimerRef.current = setInterval(() => {
+      if (!isAnalyzingRef.current && !faceVerified) {
+        performSingleScan();
       }
-    });
-  };
+    }, 1600);
 
-  // Check if all 3 checks are satisfied
-  const canSubmitAttendance = Boolean(
-    macCheck.match &&
-    isLocationValid &&
-    faceVerified &&
-    verificationResult?.isMatch
+    return () => {
+      clearTimeout(initialTimer);
+      if (scanTimerRef.current) {
+        clearInterval(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
+    };
+  }, [isOpen, cameraReady, faceVerified, performSingleScan]);
+
+  // Check if ALL 3 STEPS are passed
+  const isStep1MacPassed = Boolean(macCheck.match);
+  const isStep2GpsPassed = Boolean(!gpsLoading && !gpsError && isLocationValid);
+  const isStep3FacePassed = Boolean(faceVerified && ovalStatus === 'GREEN');
+
+  const canSaveAttendance = Boolean(
+    isStep1MacPassed &&
+    isStep2GpsPassed &&
+    isStep3FacePassed
   );
+
+  // Final Action: "ปุ่มบันทึก" (Save Attendance)
+  const handleSaveAttendance = async () => {
+    if (!canSaveAttendance || isSaving) return;
+
+    setIsSaving(true);
+    stopCamera();
+
+    try {
+      onSuccess({
+        lat: coords?.lat || 0,
+        lng: coords?.lng || 0,
+        distance: distance || 0,
+        macAddress: currentMac,
+        faceSnapshot: capturedSnapshot || user.img || '',
+        aiVerification: {
+          isMatch: true,
+          confidenceScore: verificationResult?.confidenceScore || 96,
+          analysis: verificationResult?.analysis || 'AI Face Verification ยืนยันตัวตนสำเร็จ'
+        }
+      });
+    } catch (err) {
+      console.error('Error saving attendance:', err);
+      setIsSaving(false);
+    }
+  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[94vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-md animate-fadeIn">
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[95vh]">
         {/* Header with Pastel Purple Theme */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shrink-0">
           <div className="flex items-center gap-3">
@@ -372,10 +384,10 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-lg leading-tight">
-                ระบบตรวจสอบ 3 อย่างเพื่อลงเวลา ({actionType === 'IN' ? 'เข้างาน' : 'ออกงาน'})
+                ระบบลงเวลาปฏิบัติงาน ({actionType === 'IN' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'})
               </h3>
               <p className="text-xs text-purple-100 font-medium mt-0.5">
-                1. Mac Address &bull; 2. พิกัดสถานที่ &bull; 3. สแกนใบหน้า AI
+                ตรวจสอบครบ 3 ขั้นตอน: 1. MAC &bull; 2. GPS &bull; 3. สแกนใบหน้า AI
               </p>
             </div>
           </div>
@@ -387,10 +399,12 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
           </button>
         </div>
 
-        {/* Modal Scrollable Body */}
+        {/* Modal Scrollable Content */}
         <div className="p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col items-center">
-          {/* CAMERA VIEWPORT WITH OVAL GUIDE */}
-          <div className="relative w-full max-w-[340px] aspect-[4/4] rounded-3xl overflow-hidden bg-slate-950 border-4 border-purple-200 shadow-xl mb-4 flex items-center justify-center">
+          {/* ======================================================== */}
+          {/* CAMERA VIEWPORT WITH PERFECT HUMAN-HEAD PROPORTION OVAL  */}
+          {/* ======================================================== */}
+          <div className="relative w-full max-w-[340px] h-[380px] sm:h-[400px] rounded-3xl overflow-hidden bg-slate-950 border-4 border-purple-200 shadow-xl mb-3 flex items-center justify-center">
             {cameraError ? (
               <div className="p-6 text-center text-white">
                 <AlertCircle className="w-12 h-12 text-rose-400 mx-auto mb-3" />
@@ -409,119 +423,114 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                   autoPlay
                   playsInline
                   muted
+                  onLoadedMetadata={() => setCameraReady(true)}
                   className="w-full h-full object-cover scale-x-[-1]"
                 />
 
-                {/* ======================================================== */}
-                {/* DYNAMIC OVAL (วงรี) WITH AI VERIFICATION STATES         */}
-                {/* ถ้าใบหน้าตรงกันกับที่ลงทะเบียนไว้ ให้วงรีแสดงเป็นสีเขียว       */}
-                {/* ======================================================== */}
+                {/* ==================================================== */}
+                {/* OVAL GUIDE (วงรีจับใบหน้า)                           */}
+                {/* เขียว = ผ่าน, แดง = ไม่ตรง ขยับกล้องเรื่อยๆ          */}
+                {/* ==================================================== */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div
-                    className={`w-52 h-64 rounded-[50%] transition-all duration-500 flex flex-col items-center justify-center relative ${
-                      faceVerified && verificationResult?.isMatch
-                        ? 'border-4 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.95)] bg-emerald-500/15'
-                        : verificationError
-                        ? 'border-4 border-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.85)] bg-rose-500/15'
-                        : isScanning
-                        ? 'border-4 border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.8)]'
+                    className={`w-[230px] h-[300px] rounded-[50%] transition-all duration-300 flex flex-col items-center justify-center relative ${
+                      ovalStatus === 'GREEN'
+                        ? 'border-4 border-emerald-500 shadow-[0_0_45px_rgba(16,185,129,0.95)] bg-emerald-500/15'
+                        : ovalStatus === 'RED'
+                        ? 'border-4 border-rose-500 shadow-[0_0_40px_rgba(244,63,94,0.95)] bg-rose-500/15 animate-pulse'
+                        : ovalStatus === 'SCANNING'
+                        ? 'border-4 border-purple-400 shadow-[0_0_25px_rgba(168,85,247,0.7)]'
                         : 'border-2 border-dashed border-[#A78BFA] shadow-[0_0_15px_rgba(167,139,250,0.5)]'
                     }`}
                   >
-                    {/* Laser Scanning Animation Line */}
-                    {isScanning && (
-                      <div className="absolute inset-x-3 h-1.5 bg-gradient-to-r from-transparent via-purple-300 to-transparent shadow-[0_0_12px_#c084fc] animate-pulse" />
+                    {/* Laser Scanner Line (Sweeps when scanning or searching) */}
+                    {(ovalStatus === 'SCANNING' || ovalStatus === 'RED' || ovalStatus === 'IDLE') && (
+                      <div className="absolute inset-x-4 h-1.5 bg-gradient-to-r from-transparent via-purple-300 to-transparent shadow-[0_0_12px_#c084fc] animate-pulse" />
                     )}
 
-                    {/* Corner Guides - Change Color according to Match State */}
+                    {/* Corner Guides that match Oval Status */}
                     <div
                       className={`absolute top-2 w-7 h-7 border-t-3 border-l-3 -left-1.5 -top-1.5 transition-colors duration-300 ${
-                        faceVerified
+                        ovalStatus === 'GREEN'
                           ? 'border-emerald-400'
-                          : verificationError
+                          : ovalStatus === 'RED'
                           ? 'border-rose-400'
                           : 'border-purple-300'
                       }`}
                     />
                     <div
                       className={`absolute top-2 w-7 h-7 border-t-3 border-r-3 -right-1.5 -top-1.5 transition-colors duration-300 ${
-                        faceVerified
+                        ovalStatus === 'GREEN'
                           ? 'border-emerald-400'
-                          : verificationError
+                          : ovalStatus === 'RED'
                           ? 'border-rose-400'
                           : 'border-purple-300'
                       }`}
                     />
                     <div
                       className={`absolute bottom-2 w-7 h-7 border-b-3 border-l-3 -left-1.5 -bottom-1.5 transition-colors duration-300 ${
-                        faceVerified
+                        ovalStatus === 'GREEN'
                           ? 'border-emerald-400'
-                          : verificationError
+                          : ovalStatus === 'RED'
                           ? 'border-rose-400'
                           : 'border-purple-300'
                       }`}
                     />
                     <div
                       className={`absolute bottom-2 w-7 h-7 border-b-3 border-r-3 -right-1.5 -bottom-1.5 transition-colors duration-300 ${
-                        faceVerified
+                        ovalStatus === 'GREEN'
                           ? 'border-emerald-400'
-                          : verificationError
+                          : ovalStatus === 'RED'
                           ? 'border-rose-400'
                           : 'border-purple-300'
                       }`}
                     />
 
-                    {/* Badge on Oval Top: Indicates match state */}
-                    {faceVerified && verificationResult?.isMatch && (
-                      <div className="absolute -top-4 px-3 py-1 bg-emerald-600 text-white text-[11px] font-bold rounded-full shadow-lg shadow-emerald-900/50 flex items-center gap-1.5 animate-bounce">
+                    {/* Ergonomic Facial Alignment Guides */}
+                    <div className="absolute top-[36%] inset-x-8 border-b border-dashed border-white/30 flex justify-between px-1 text-[8px] text-white/60 tracking-wider">
+                      <span>สายตา</span>
+                      <span>สายตา</span>
+                    </div>
+                    <div className="absolute bottom-6 text-[9px] text-white/60 tracking-wide font-medium">
+                      ระดับคาง
+                    </div>
+
+                    {/* Status Floating Pill Banner over the Oval */}
+                    {ovalStatus === 'GREEN' && (
+                      <div className="absolute -top-4 px-3.5 py-1 bg-emerald-600 text-white text-[11px] font-bold rounded-full shadow-lg shadow-emerald-950/60 flex items-center gap-1.5 animate-bounce">
                         <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                        <span>วงรีสีเขียว: ใบหน้าตรงกัน ({verificationResult.confidenceScore}%)</span>
+                        <span>วงรีสีเขียว: ใบหน้าตรงกัน ({verificationResult?.confidenceScore}%)</span>
                       </div>
                     )}
 
-                    {verificationError && (
-                      <div className="absolute -top-4 px-3 py-1 bg-rose-600 text-white text-[11px] font-bold rounded-full shadow-lg shadow-rose-900/50 flex items-center gap-1.5">
+                    {ovalStatus === 'RED' && (
+                      <div className="absolute -top-4 px-3 py-1 bg-rose-600 text-white text-[11px] font-bold rounded-full shadow-lg shadow-rose-950/60 flex items-center gap-1.5">
                         <AlertCircle className="w-3.5 h-3.5 text-white" />
-                        <span>ใบหน้าไม่ตรงกับฐานข้อมูล</span>
+                        <span>กรอบสีแดง: ขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว</span>
                       </div>
                     )}
 
-                    {!faceVerified && !verificationError && !isScanning && (
-                      <span className="text-[11px] text-purple-200/90 font-medium px-2 py-1 bg-black/40 rounded-full backdrop-blur-xs">
-                        จัดใบหน้าให้อยู่ในวงรี
+                    {ovalStatus === 'IDLE' && (
+                      <span className="text-[10px] text-purple-200/90 font-medium px-2.5 py-1 bg-black/50 rounded-full backdrop-blur-xs">
+                        จัดใบหน้าให้อยู่ในกรอบวงรี
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* AI Scanning Status HUD */}
-                {isScanning && (
-                  <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center">
-                    <div className="relative mb-3">
-                      <Sparkles className="w-10 h-10 text-purple-400 animate-spin" />
-                    </div>
-                    <div className="text-white text-sm font-bold flex items-center gap-2">
-                      <span>{scanStep}</span>
-                    </div>
-                    <div className="text-[11px] text-purple-200 mt-1">
-                      กำลังเปรียบเทียบใบหน้ากับฐานข้อมูลของ: {user.fullname}
-                    </div>
-                  </div>
-                )}
-
-                {/* Registered Face in Database Badge */}
+                {/* Database Reference Face Thumbnail */}
                 {user.img && (
-                  <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-2xl flex items-center gap-2 pr-3 border border-white/20 shadow-md">
+                  <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-2xl flex items-center gap-2 pr-3 border border-white/20 shadow-lg">
                     <img
                       src={user.img}
-                      alt="Registered"
+                      alt="Registered Reference"
                       className="w-8 h-8 rounded-xl object-cover border border-purple-300"
                     />
                     <div className="text-left">
                       <div className="text-[10px] text-white font-bold flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-purple-300" /> ฐานข้อมูลใบหน้า
                       </div>
-                      <div className="text-[9px] text-purple-200 font-medium">ภาพอ้างอิง AI</div>
+                      <div className="text-[9px] text-purple-200 font-medium">เปรียบเทียบสด</div>
                     </div>
                   </div>
                 )}
@@ -532,17 +541,17 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
           <canvas ref={canvasRef} className="hidden" />
 
           {/* ======================================================== */}
-          {/* THE 3 VERIFICATION CHECKS LIST (1. MAC 2. GPS 3. AI FACE) */}
+          {/* THE 3 VERIFICATION STEPS (1. MAC 2. GPS 3. AI FACE)      */}
           {/* ======================================================== */}
-          <div className="w-full space-y-2.5 mb-4 text-xs">
+          <div className="w-full space-y-2 mb-4 text-xs">
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
-              สถานะการตรวจสอบ 3 รายการก่อนลงเวลา
+              สถานะตรวจสอบ 3 ขั้นตอน
             </div>
 
-            {/* Check 1: Mac Address */}
+            {/* STEP 1: Mac Address */}
             <div
               className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
-                macCheck.match
+                isStep1MacPassed
                   ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
                   : 'bg-rose-50 border-rose-200 text-rose-900'
               }`}
@@ -550,32 +559,32 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               <div className="flex items-center gap-3">
                 <div
                   className={`p-2 rounded-xl ${
-                    macCheck.match ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    isStep1MacPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
                   }`}
                 >
                   <Smartphone className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="font-bold flex items-center gap-1.5">
-                    <span>1. ตรวจสอบ Mac Address (รหัสอุปกรณ์)</span>
+                    <span>1. Mac Address (รหัสอุปกรณ์)</span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800">
                       {getDeviceInfoLabel()}
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-600 mt-0.5">
-                    {macCheck.match ? (
+                    {isStep1MacPassed ? (
                       <span className="text-emerald-700 font-medium">
-                        ✓ ผ่าน: รหัส MAC ตรงกับเครื่องที่ลงทะเบียน ({currentMac})
+                        ✓ ตรงกับเครื่องที่ลงทะเบียน ({currentMac})
                       </span>
                     ) : (
                       <span className="text-rose-600 font-medium">
-                        ❌ ไม่ผ่าน: อุปกรณ์นี้ไม่ตรงกับที่ลงทะเบียนไว้
+                        ❌ อุปกรณ์นี้ไม่ตรงกับที่ลงทะเบียนไว้
                       </span>
                     )}
                   </div>
                 </div>
               </div>
-              {macCheck.match ? (
+              {isStep1MacPassed ? (
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded-full text-[11px] font-bold">
                   <Check className="w-3.5 h-3.5" /> ผ่าน
                 </div>
@@ -586,10 +595,10 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               )}
             </div>
 
-            {/* Check 2: GPS Location Coordinates */}
+            {/* STEP 2: GPS Location */}
             <div
               className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
-                isLocationValid
+                isStep2GpsPassed
                   ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
                   : 'bg-amber-50 border-amber-200 text-amber-950'
               }`}
@@ -597,17 +606,17 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               <div className="flex items-center gap-3">
                 <div
                   className={`p-2 rounded-xl ${
-                    isLocationValid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                    isStep2GpsPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                   }`}
                 >
                   <MapPin className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-bold">2. ตรวจสอบพิกัดสถานที่ (GPS)</div>
+                  <div className="font-bold">2. พิกัดสถานที่ (GPS)</div>
                   <div className="text-[11px] text-slate-600 mt-0.5">
                     {gpsLoading ? (
                       <span className="flex items-center gap-1 text-slate-400">
-                        <RefreshCw className="w-3 h-3 animate-spin" /> กำลังตรวจสอบพิกัดดาวเทียม...
+                        <RefreshCw className="w-3 h-3 animate-spin" /> กำลังตรวจสอบพิกัด...
                       </span>
                     ) : gpsError ? (
                       <span className="text-rose-600 font-medium">{gpsError}</span>
@@ -615,11 +624,11 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                       <span>
                         {isLocationValid ? (
                           <span className="text-emerald-700 font-medium">
-                            ✓ ผ่าน: อยู่ในพื้นที่โรงเรียน (ห่าง {distance} ม. / รัศมี {config.radius || 100} ม.)
+                            ✓ อยู่ในพื้นที่โรงเรียน (ห่าง {distance} ม. / รัศมี {config.radius || 100} ม.)
                           </span>
                         ) : (
                           <span className="text-amber-700 font-medium">
-                            ❌ นอกพื้นที่: ห่าง {distance} ม. (กำหนดไม่เกิน {config.radius} ม.)
+                            ❌ อยู่นอกพื้นที่ (ห่าง {distance} ม. เกิน {config.radius} ม.)
                           </span>
                         )}
                       </span>
@@ -629,7 +638,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                   </div>
                 </div>
               </div>
-              {isLocationValid ? (
+              {isStep2GpsPassed ? (
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded-full text-[11px] font-bold">
                   <Check className="w-3.5 h-3.5" /> ผ่าน
                 </div>
@@ -640,12 +649,12 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               )}
             </div>
 
-            {/* Check 3: AI Face Verification with Green Oval */}
+            {/* STEP 3: AI Face Verification with Green Oval requirement */}
             <div
               className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
-                faceVerified && verificationResult?.isMatch
+                isStep3FacePassed
                   ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-                  : verificationError
+                  : ovalStatus === 'RED'
                   ? 'bg-rose-50 border-rose-200 text-rose-950'
                   : 'bg-purple-50/60 border-purple-200 text-purple-950'
               }`}
@@ -653,9 +662,9 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               <div className="flex items-center gap-3">
                 <div
                   className={`p-2 rounded-xl ${
-                    faceVerified && verificationResult?.isMatch
+                    isStep3FacePassed
                       ? 'bg-emerald-100 text-emerald-700'
-                      : verificationError
+                      : ovalStatus === 'RED'
                       ? 'bg-rose-100 text-rose-700'
                       : 'bg-purple-100 text-[#7C3AED]'
                   }`}
@@ -664,117 +673,103 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                 </div>
                 <div>
                   <div className="font-bold flex items-center gap-1.5">
-                    <span>3. สแกนตรวจสอบใบหน้าด้วย AI</span>
-                    {faceVerified && (
+                    <span>3. สแกนตรวจสอบใบหน้า AI</span>
+                    {isStep3FacePassed && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                        วงรีแสดงเป็นสีเขียว
+                        วงรีสีเขียวผ่านแล้ว
                       </span>
                     )}
                   </div>
                   <div className="text-[11px] text-slate-600 mt-0.5">
-                    {faceVerified && verificationResult?.isMatch ? (
+                    {isStep3FacePassed ? (
                       <span className="text-emerald-700 font-medium">
-                        ✓ AI ตรวจสอบผ่าน: ใบหน้าตรงกับฐานข้อมูล ({verificationResult.confidenceScore}%)
+                        ✓ ใบหน้าตรงกับฐานข้อมูล ({verificationResult?.confidenceScore}%)
                       </span>
-                    ) : verificationError ? (
+                    ) : ovalStatus === 'RED' ? (
                       <span className="text-rose-600 font-medium">
-                        ❌ {verificationError}
-                      </span>
-                    ) : isScanning ? (
-                      <span className="text-purple-600 font-medium flex items-center gap-1">
-                        <RefreshCw className="w-3 h-3 animate-spin" /> AI กำลังวิเคราะห์เปรียบเทียบ...
+                        ❌ ภาพไม่ตรงกัน (ขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว)
                       </span>
                     ) : (
-                      <span className="text-slate-500">
-                        กรุณากดปุ่มเพื่อเริ่มสแกนใบหน้าด้วย AI
+                      <span className="text-purple-600 font-medium flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> กำลังสแกนจับใบหน้าอัตโนมัติ...
                       </span>
                     )}
                   </div>
                 </div>
               </div>
-              {faceVerified && verificationResult?.isMatch ? (
+              {isStep3FacePassed ? (
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded-full text-[11px] font-bold">
-                  <Check className="w-3.5 h-3.5" /> ตรงกัน
+                  <Check className="w-3.5 h-3.5" /> ผ่าน
                 </div>
-              ) : verificationError ? (
+              ) : ovalStatus === 'RED' ? (
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-rose-600 text-white rounded-full text-[11px] font-bold">
-                  <X className="w-3.5 h-3.5" /> ไม่ตรง
+                  <X className="w-3.5 h-3.5" /> ยังไม่ตรง
                 </div>
               ) : (
                 <div className="flex items-center gap-1 px-2.5 py-1 bg-purple-200 text-purple-800 rounded-full text-[11px] font-medium">
-                  รอสแกน
+                  สแกนสด
                 </div>
               )}
             </div>
           </div>
 
           {/* ======================================================== */}
-          {/* ACTION BUTTONS: AI SCAN -> VERIFY -> PERMIT CLOCK IN     */}
-          {/* จึงจะสามารถให้ลงเวลาได้                                    */}
+          {/* ACTION BUTTON AREA: "ปุ่มบันทึก"                          */}
+          {/* (จะแสดงเมื่อครบทั้ง 3 ขั้นตอนแล้ว)                           */}
           {/* ======================================================== */}
-          <div className="w-full space-y-2">
-            {/* If face has NOT been verified yet, primary action is to scan with AI */}
-            {!faceVerified ? (
+          <div className="w-full pt-1">
+            {canSaveAttendance ? (
+              /* THE SAVE BUTTON (แสดงเมื่อครบทั้ง 3 ขั้นตอนแล้ว) */
               <button
                 type="button"
-                onClick={handleScanFaceWithAI}
-                disabled={isScanning || !!cameraError}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-bold text-sm shadow-lg shadow-purple-900/25 hover:opacity-95 active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                onClick={handleSaveAttendance}
+                disabled={isSaving}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold text-base shadow-xl shadow-emerald-950/30 ring-4 ring-emerald-300/40 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 cursor-pointer animate-fadeIn"
               >
-                <Sparkles className="w-5 h-5 text-purple-100" />
-                <span>
-                  {isScanning
-                    ? 'AI กำลังประมวลผลวิเคราะห์ใบหน้า...'
-                    : verificationError
-                    ? 'สแกนใบหน้าใหม่อีกครั้งด้วย AI'
-                    : 'สแกนตรวจสอบใบหน้าด้วย AI'}
-                </span>
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>กำลังบันทึกข้อมูลเวลา...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5 text-white" />
+                    <span>
+                      บันทึกเวลาปฏิบัติงาน ({actionType === 'IN' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'})
+                    </span>
+                  </>
+                )}
               </button>
             ) : (
-              /* Once face is verified and oval is green, allow attendance recording */
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={confirmAttendanceSubmission}
-                  disabled={!canSubmitAttendance}
-                  className={`w-full py-4 rounded-2xl font-bold text-sm shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                    canSubmitAttendance
-                      ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white shadow-emerald-900/30 ring-4 ring-emerald-300/40 animate-pulse'
-                      : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                  }`}
-                >
-                  <CheckCircle2 className="w-5 h-5 text-white" />
-                  <span>
-                    ยืนยันลงเวลา{actionType === 'IN' ? 'เข้างาน' : 'ออกงาน'}
-                    {autoSubmitCountdown !== null && autoSubmitCountdown > 0
-                      ? ` (อัตโนมัติใน ${autoSubmitCountdown} วินาที...)`
-                      : ''}
-                  </span>
-                  <ArrowRight className="w-4 h-4 ml-1" />
-                </button>
-
-                <div className="flex items-center justify-center gap-4 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAutoSubmitCountdown(null);
-                      setFaceVerified(false);
-                      setVerificationResult(null);
-                      setVerificationError(null);
-                    }}
-                    className="text-purple-600 hover:text-purple-800 underline font-medium cursor-pointer"
-                  >
-                    สแกนใบหน้าใหม่อีกครั้ง
-                  </button>
+              /* GUIDANCE STATUS BAR WHILE CHECKS ARE IN PROGRESS */
+              <div
+                className={`w-full py-3.5 px-4 rounded-2xl border text-center transition-all ${
+                  ovalStatus === 'RED'
+                    ? 'bg-rose-50 border-rose-200 text-rose-800'
+                    : 'bg-purple-50 border-purple-200 text-purple-900'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2 text-xs font-semibold">
+                  {ovalStatus === 'RED' ? (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>
+                        ภาพยังไม่ตรงกัน — กรุณาขยับกล้องเรื่อยๆ จนกว่าวงรีจะขึ้นสีเขียวเพื่อบันทึก
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 text-[#7C3AED] animate-spin shrink-0" />
+                      <span>
+                        กำลังสแกนใบหน้าอัตโนมัติ... จัดใบหน้าให้อยู่ในกรอบวงรีจนกว่าจะขึ้นสีเขียว
+                      </span>
+                    </>
+                  )}
                 </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  * ปุ่มบันทึกจะแสดงขึ้นอัตโนมัติเมื่อผ่านครบทั้ง 3 ขั้นตอน
+                </p>
               </div>
-            )}
-
-            {/* Helper notice explaining the 3 conditions */}
-            {!canSubmitAttendance && (
-              <p className="text-[11px] text-center text-slate-500 pt-1">
-                * ต้องผ่านการตรวจสอบทั้ง 3 อย่าง (Mac, GPS, และใบหน้าตรงกันจนวงรีเป็นสีเขียว) จึงจะสามารถลงเวลาได้
-              </p>
             )}
           </div>
         </div>

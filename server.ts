@@ -151,23 +151,26 @@ Respond strictly with JSON according to the schema.`;
       const data2 = match2 ? match2[2] : scannedImageBase64;
 
       if (!ai) {
-        return res.json({
-          isMatch: true,
-          confidenceScore: 94,
-          analysis: `AI ยืนยันตัวตนสำเร็จ: โครงหน้าตรงกับ ${fullname || username || 'ครูผู้ลงทะเบียน'} 94%`,
-          liveness: 'PASS',
+        return res.status(503).json({
+          isMatch: false,
+          confidenceScore: 0,
+          analysis: 'ระบบ AI บนเซิร์ฟเวอร์ไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง',
+          liveness: 'SUSPICIOUS',
         });
       }
 
-      const prompt = `You are an AI Biometric Facial Recognition Engine for a teacher attendance clock-in system.
-Compare Image 1 (registered face in database for user "${fullname || username || 'ครู'}") with Image 2 (live face scan captured at clock-in).
+      const prompt = `You are an AI Biometric Facial Recognition Engine for teacher attendance.
+Compare Image 1 (registered face in database for user "${fullname || username || 'ครู'}") with Image 2 (live webcam frame captured at clock-in).
 
-Determine:
-1. Do both images depict the exact same person?
-2. Calculate facial feature similarity (confidenceScore: 0 to 100).
-3. If similarity >= 75%, isMatch is true. Otherwise false.
-4. Liveness check indicator ('PASS' or 'SUSPICIOUS').
-5. Provide a short, professional explanation in Thai language (analysis: string, e.g., 'AI ยืนยันตัวตนสำเร็จ: โครงหน้า คิ้ว และตำแหน่งดวงตาตรงกับ ${fullname || 'ครูผู้ลงทะเบียน'} (ความมั่นใจ 96%)').
+CRITICAL VERIFICATION RULES:
+1. Examine Image 2: Does it contain a clear, forward-facing human face?
+   If it is a wall, ceiling, background, hand, covered face, blurry, or no human face is detected:
+   Return: isMatch = false, confidenceScore = 10, analysis = "ไม่พบใบหน้าชัดเจนในกรอบวงรี กรุณาจัดใบหน้าให้อยู่ตรงกลาง", liveness = "SUSPICIOUS".
+2. If a human face is present in Image 2, compare the facial structure, eye shape/distance, nose contour, mouth, and identity with Image 1:
+   - If they are the SAME PERSON (matching facial biometrics):
+     Return: isMatch = true, confidenceScore = (calculated percentage 75-99%), analysis = "AI ยืนยันสำเร็จ: ใบหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (" + confidenceScore + "%)", liveness = "PASS".
+   - If they are DIFFERENT PEOPLE or facial features do not match:
+     Return: isMatch = false, confidenceScore = (calculated percentage 20-55%), analysis = "ภาพยังไม่ตรงกับฐานข้อมูล (" + confidenceScore + "%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว", liveness = "SUSPICIOUS".
 
 Respond strictly in JSON matching the schema.`;
 
@@ -219,11 +222,11 @@ Respond strictly in JSON matching the schema.`;
       return res.json(parsed);
     } catch (error) {
       console.error('Error in /api/ai/verify-face:', error);
-      return res.json({
-        isMatch: true,
-        confidenceScore: 92,
-        analysis: `AI ยืนยันตัวตนสำเร็จ: ใบหน้าตรงกับ ${fullname || username || 'ครูผู้ลงทะเบียน'} 92%`,
-        liveness: 'PASS',
+      return res.status(500).json({
+        isMatch: false,
+        confidenceScore: 0,
+        analysis: 'ภาพยังไม่ตรงกับฐานข้อมูล กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว',
+        liveness: 'SUSPICIOUS',
       });
     }
   });
