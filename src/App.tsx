@@ -324,17 +324,6 @@ export default function App() {
       }
     }
 
-    // Verify MAC address
-    const macCheck = verifyDeviceMac(currentUser.registeredMac, currentDeviceMac);
-    if (!macCheck.match) {
-      Swal.fire({
-        title: 'อุปกรณ์ไม่ถูกต้อง',
-        text: macCheck.message || 'รหัส MAC Address ไม่ตรงกับที่ลงทะเบียนไว้',
-        icon: 'error'
-      });
-      return;
-    }
-
     setFaceActionType(action);
     setFaceModalOpen(true);
   };
