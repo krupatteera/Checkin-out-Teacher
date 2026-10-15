@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "SchoolConfig": {
+      "title": "SchoolConfig",
+      "description": "Configuration settings for school attendance system",
+      "type": "object",
+      "properties": {
+        "orgName": { "type": "string", "description": "ชื่อโรงเรียน" },
+        "orgAffiliation": { "type": "string", "description": "ชื่อสังกัด เช่น สพป. / สพม." },
+        "logoUrl": { "type": "string", "description": "URL ของโลโก้โรงเรียน" },
+        "lateTime": { "type": "string", "description": "เวลาเข้างานสาย เช่น 08:30" },
+        "earlyTime": { "type": "string", "description": "เวลากลับก่อน เช่น 16:30" },
+        "centerLat": { "type": "number", "description": "ละติจูดศูนย์กลางโรงเรียน" },
+        "centerLng": { "type": "number", "description": "ลองจิจูดศูนย์กลางโรงเรียน" },
+        "radius": { "type": "number", "description": "รัศมีที่อนุญาตให้ลงเวลา (เมตร)" }
+      },
+      "required": ["orgName", "orgAffiliation", "lateTime", "earlyTime"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User account for teacher or administrator",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "description": "รหัสผู้ใช้งานสำหรับเข้าสู่ระบบ" },
+        "password": { "type": "string", "description": "รหัสผ่าน" },
+        "fullname": { "type": "string", "description": "ชื่อ-นามสกุล" },
+        "position": { "type": "string", "description": "ตำแหน่ง เช่น ครูชำนาญการพิเศษ" },
+        "department": { "type": "string", "description": "กลุ่มสาระการเรียนรู้ หรือ แผนก" },
+        "phone": { "type": "string", "description": "เบอร์โทรศัพท์" },
+        "role": { "type": "string", "enum": ["admin", "teacher"], "description": "บทบาทผู้ใช้งาน" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"], "description": "สถานะการใช้งาน" },
+        "registeredMac": { "type": "string", "description": "MAC Address หรือ Device ID ประจำเครื่องที่ลงทะเบียน" },
+        "img": { "type": "string", "description": "รูปโปรไฟล์" },
+        "createdAt": { "type": "string", "description": "เวลาสร้างบัญชี" }
+      },
+      "required": ["username", "password", "fullname", "role", "status"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Daily check-in and check-out attendance record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "รหัสผู้ใช้งานหรือ username" },
+        "employeeId": { "type": "string", "description": "รหัสประจำตัว" },
+        "employeeName": { "type": "string", "description": "ชื่อ-นามสกุล" },
+        "action": { "type": "string", "enum": ["IN", "OUT", "LEAVE", "OFFICIAL"], "description": "ประเภทการลงเวลา" },
+        "date": { "type": "string", "description": "วันที่ในรูปแบบ YYYY-MM-DD" },
+        "dateThai": { "type": "string", "description": "วันที่ภาษาไทย" },
+        "time": { "type": "string", "description": "เวลาลงบันทึก HH:mm" },
+        "lat": { "type": "number", "description": "ละติจูดขณะลงเวลา" },
+        "lng": { "type": "number", "description": "ลองจิจูดขณะลงเวลา" },
+        "distance": { "type": "number", "description": "ระยะห่างจากศูนย์กลางโรงเรียน (เมตร)" },
+        "isLate": { "type": "boolean", "description": "สายหรือไม่" },
+        "isEarly": { "type": "boolean", "description": "กลับก่อนเวลาหรือไม่" },
+        "note": { "type": "string", "description": "หมายเหตุหรือสาเหตุการลา/ไปราชการ" },
+        "macAddress": { "type": "string", "description": "MAC Address หรือ Device ID ที่ลงเวลา" },
+        "faceSnapshot": { "type": "string", "description": "รูปสแกนใบหน้าขณะลงเวลา" },
+        "timestamp": { "type": "number", "description": "เวลา Timestamp ในระบบ" }
+      },
+      "required": ["userId", "employeeName", "action", "date", "time"]
+    },
+    "SystemLog": {
+      "title": "SystemLog",
+      "description": "Activity log of operations in system",
+      "type": "object",
+      "properties": {
+        "time": { "type": "string", "description": "วันเวลาที่เกิดเหตุการณ์" },
+        "user": { "type": "string", "description": "ผู้ใช้งานที่ทำรายการ" },
+        "action": { "type": "string", "description": "ประเภทกิจกรรม" },
+        "details": { "type": "string", "description": "รายละเอียดกิจกรรม" },
+        "timestamp": { "type": "number", "description": "Timestamp" }
+      },
+      "required": ["time", "user", "action", "details"]
+    }
+  },
+  "firestore": {
+    "/config/{configId}": {
+      "schema": "SchoolConfig",
+      "description": "การตั้งค่าระบบและเกณฑ์เวลาของโรงเรียน"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "ข้อมูลบัญชีผู้ใช้งานครูและผู้ดูแลระบบ"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "AttendanceRecord",
+      "description": "บันทึกเวลาปฏิบัติงาน การลา และการไปราชการ"
+    },
+    "/logs/{logId}": {
+      "schema": "SystemLog",
+      "description": "ประวัติการทำงานในระบบ"
+    }
+  }
+}

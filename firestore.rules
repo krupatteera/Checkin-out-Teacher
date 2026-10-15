@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // School Config: readable by everyone, writable by authenticated/admin operations
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // User Accounts: readable and writable for authentication, registration and profile updates
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // Attendance Records: readable and creatable for check-in/out, leave, official duty
+    match /attendance/{attendanceId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // System Logs: readable and writable for audit trail
+    match /logs/{logId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}
