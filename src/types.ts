@@ -19,10 +19,20 @@ export interface UserAccount {
   department: string;
   phone?: string;
   role: 'admin' | 'teacher';
-  status: 'ACTIVE' | 'INACTIVE';
+  status: 'ACTIVE' | 'PENDING' | 'INACTIVE';
   registeredMac?: string; // Stored device MAC fingerprint
   img?: string;
   createdAt?: string;
+  faceBiometrics?: {
+    analyzedAt: string;
+    quality: string;
+    confidence: number;
+    descriptor: string;
+    aiSummary: string;
+  };
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedReason?: string;
 }
 
 export type AttendanceAction = 'IN' | 'OUT' | 'LEAVE' | 'OFFICIAL';
@@ -44,6 +54,11 @@ export interface AttendanceRecord {
   note?: string;
   macAddress?: string;
   faceSnapshot?: string;
+  aiVerification?: {
+    isMatch: boolean;
+    confidenceScore: number;
+    analysis: string;
+  };
   timestamp: number;
 }
 

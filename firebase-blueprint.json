@@ -28,9 +28,13 @@
         "department": { "type": "string", "description": "กลุ่มสาระการเรียนรู้ หรือ แผนก" },
         "phone": { "type": "string", "description": "เบอร์โทรศัพท์" },
         "role": { "type": "string", "enum": ["admin", "teacher"], "description": "บทบาทผู้ใช้งาน" },
-        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"], "description": "สถานะการใช้งาน" },
+        "status": { "type": "string", "enum": ["ACTIVE", "PENDING", "INACTIVE"], "description": "สถานะการใช้งาน (รออนุมัติ / ใช้งานได้ / ระงับ)" },
         "registeredMac": { "type": "string", "description": "MAC Address หรือ Device ID ประจำเครื่องที่ลงทะเบียน" },
-        "img": { "type": "string", "description": "รูปโปรไฟล์" },
+        "img": { "type": "string", "description": "รูปโปรไฟล์หรือรูปใบหน้าชีวภาพ" },
+        "faceBiometrics": { "type": "object", "description": "ข้อมูลการวิเคราะห์และดึงลักษณะใบหน้าด้วย AI" },
+        "approvedAt": { "type": "string", "description": "วันเวลาที่ผู้ดูแลระบบอนุมัติ" },
+        "approvedBy": { "type": "string", "description": "ผู้ดูแลระบบที่อนุมัติ" },
+        "rejectedReason": { "type": "string", "description": "เหตุผลที่ปฏิเสธหรือระงับ" },
         "createdAt": { "type": "string", "description": "เวลาสร้างบัญชี" }
       },
       "required": ["username", "password", "fullname", "role", "status"]

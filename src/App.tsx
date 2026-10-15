@@ -213,6 +213,31 @@ export default function App() {
         return;
       }
 
+      if (userDoc.status === 'PENDING') {
+        Swal.fire({
+          title: 'รอการอนุมัติจากผู้ดูแลระบบ',
+          html: `
+            <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
+              <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800">
+                <p class="font-bold flex items-center gap-1.5 text-xs">
+                  <span>⏳ สถานะ: รอการอนุมัติ (Pending Approval)</span>
+                </p>
+                <p class="mt-1 text-[11px] leading-relaxed">
+                  บัญชีของ <b>${userDoc.fullname}</b> (@${userDoc.username}) ได้ลงทะเบียนข้อมูลและฐานข้อมูลใบหน้าแล้ว ขณะนี้<b>อยู่ระหว่างรอผู้ดูแลระบบ (Admin) ตรวจสอบและอนุมัติการใช้งาน</b>
+                </p>
+              </div>
+              <p class="text-[11px] text-slate-500">
+                *กรุณาติดต่อผู้ดูแลระบบเพื่อขอรับการอนุมัติก่อนเข้าสู่ระบบและลงเวลา
+              </p>
+            </div>
+          `,
+          icon: 'info',
+          confirmButtonColor: '#7C3AED',
+          confirmButtonText: 'รับทราบ'
+        });
+        return;
+      }
+
       if (userDoc.status !== 'ACTIVE') {
         Swal.fire('บัญชีถูกระงับ', 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ', 'warning');
         return;
@@ -314,13 +339,18 @@ export default function App() {
     setFaceModalOpen(true);
   };
 
-  // Handle successful face scan + GPS capture
+  // Handle successful face scan + GPS capture with AI Face Recognition
   const handleFaceSuccess = async (result: {
     lat: number;
     lng: number;
     distance: number;
     macAddress: string;
     faceSnapshot: string;
+    aiVerification?: {
+      isMatch: boolean;
+      confidenceScore: number;
+      analysis: string;
+    };
   }) => {
     setFaceModalOpen(false);
 
@@ -354,12 +384,17 @@ export default function App() {
         note: finalNote,
         macAddress: result.macAddress,
         faceSnapshot: result.faceSnapshot,
+        aiVerification: result.aiVerification,
         timestamp: now.getTime()
       });
 
+      const aiMatchBadge = result.aiVerification
+        ? `<div class="mt-2.5 p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-left text-xs"><div class="font-bold text-[#7C3AED] flex items-center gap-1">✨ AI Face Match: ${result.aiVerification.confidenceScore}%</div><p class="text-[11px] text-slate-600 mt-0.5">${result.aiVerification.analysis}</p></div>`
+        : '';
+
       await Swal.fire({
         title: faceActionType === 'IN' ? 'ลงเวลาเข้างานสำเร็จ!' : 'ลงเวลากลับสำเร็จ!',
-        html: `เวลา: <b>${timeStr} น.</b><br>${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span><br>' : ''}${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span><br>' : ''}<span class="text-xs text-slate-500 font-mono">MAC: ${result.macAddress}</span>`,
+        html: `เวลา: <b>${timeStr} น.</b><br>${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span><br>' : ''}${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span><br>' : ''}<span class="text-xs text-slate-500 font-mono">MAC: ${result.macAddress}</span>${aiMatchBadge}`,
         icon: 'success'
       });
 
@@ -1107,6 +1142,7 @@ export default function App() {
         isOpen={usersModalOpen}
         onClose={() => setUsersModalOpen(false)}
         onOpenRegister={() => setRegisterModalOpen(true)}
+        currentAdminUsername={currentUser?.username || 'admin'}
       />
 
       {/* 5. Register Modal */}

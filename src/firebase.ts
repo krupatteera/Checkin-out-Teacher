@@ -143,7 +143,7 @@ export async function findUserByUsername(username: string): Promise<UserAccount 
   }
 }
 
-export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promise<{ ok: boolean; message: string }> {
+export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promise<{ ok: boolean; message: string; status?: 'ACTIVE' | 'PENDING' | 'INACTIVE' }> {
   const path = `users/${userData.username}`;
   try {
     const existing = await findUserByUsername(userData.username);
@@ -151,17 +151,58 @@ export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promis
       return { ok: false, message: 'ชื่อผู้ใช้งาน (Username) นี้มีอยู่ในระบบแล้ว' };
     }
 
+    const initialStatus = userData.status || (userData.role === 'admin' ? 'ACTIVE' : 'PENDING');
+
     const newDocRef = doc(db, 'users', userData.username);
     await setDoc(newDocRef, {
       ...userData,
-      status: userData.status || 'ACTIVE',
+      status: initialStatus,
       createdAt: new Date().toISOString()
     });
 
-    await writeSystemLog(userData.username, 'REGISTER', `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} [MAC: ${userData.registeredMac || 'N/A'}]`);
-    return { ok: true, message: 'ลงทะเบียนสมาชิกสำเร็จ! สามารถเข้าสู่ระบบได้ทันที' };
+    const statusNote = initialStatus === 'PENDING' ? '(รอผู้ดูแลระบบอนุมัติ)' : '(เปิดใช้งานทันที)';
+    await writeSystemLog(
+      userData.username,
+      'REGISTER',
+      `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} ${statusNote} [MAC: ${userData.registeredMac || 'N/A'}]`
+    );
+
+    const message = initialStatus === 'PENDING'
+      ? 'ลงทะเบียนและบันทึกฐานข้อมูลใบหน้าสำเร็จ! กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติการใช้งานก่อนเข้าสู่ระบบ'
+      : 'ลงทะเบียนสมาชิกสำเร็จ! สามารถเข้าสู่ระบบได้ทันที';
+
+    return { ok: true, message, status: initialStatus };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function approveUserAccount(userId: string, adminUsername: string): Promise<{ ok: boolean; message: string }> {
+  const path = `users/${userId}`;
+  try {
+    await updateDoc(doc(db, 'users', userId), {
+      status: 'ACTIVE',
+      approvedAt: new Date().toISOString(),
+      approvedBy: adminUsername
+    });
+    await writeSystemLog(adminUsername, 'APPROVE_USER', `อนุมัติบัญชีครู/บุคลากร: ${userId}`);
+    return { ok: true, message: `อนุมัติผู้ใช้งาน ${userId} เรียบร้อยแล้ว ครูสามารถเข้าสู่ระบบและลงเวลาได้ทันที` };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+export async function rejectUserAccount(userId: string, adminUsername: string, reason = ''): Promise<{ ok: boolean; message: string }> {
+  const path = `users/${userId}`;
+  try {
+    await updateDoc(doc(db, 'users', userId), {
+      status: 'INACTIVE',
+      rejectedReason: reason
+    });
+    await writeSystemLog(adminUsername, 'REJECT_USER', `ปฏิเสธ/ระงับบัญชี ${userId}: ${reason || 'ข้อมูลไม่ผ่านเกณฑ์'}`);
+    return { ok: true, message: `ระงับบัญชีผู้ใช้งาน ${userId} เรียบร้อยแล้ว` };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
   }
 }
 
