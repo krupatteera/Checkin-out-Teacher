@@ -47,7 +47,7 @@ export const Swal = {
         success: { bg: 'bg-emerald-100', text: 'text-emerald-600', border: 'border-emerald-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>' },
         warning: { bg: 'bg-amber-100', text: 'text-amber-600', border: 'border-amber-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>' },
         error: { bg: 'bg-rose-100', text: 'text-rose-600', border: 'border-rose-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>' },
-        question: { bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' },
+        question: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' },
         info: { bg: 'bg-sky-100', text: 'text-sky-600', border: 'border-sky-300', svg: '<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>' }
       };
 
@@ -70,7 +70,7 @@ export const Swal = {
 
       const confirmBtnText = options.confirmButtonText || 'ตกลง';
       const cancelBtnText = options.cancelButtonText || 'ยกเลิก';
-      const confirmColor = options.confirmButtonColor || '#0C7C82';
+      const confirmColor = options.confirmButtonColor || '#8B5CF6';
 
       let buttonsHtml = '';
       if (options.showCancelButton) {

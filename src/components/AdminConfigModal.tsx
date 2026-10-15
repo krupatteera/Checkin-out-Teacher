@@ -48,10 +48,10 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
           // Marker
           const marker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
 
-          // Circle for allowed check-in zone
+          // Circle for allowed check-in zone (pastel purple)
           const circle = L.circle([initialLat, initialLng], {
-            color: '#0C7C82',
-            fillColor: '#35B4B0',
+            color: '#8B5CF6',
+            fillColor: '#C4B5FD',
             fillOpacity: 0.25,
             radius: initialRadius
           }).addTo(map);
@@ -164,16 +164,16 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[92vh]">
+      <div className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white">
+        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
               <Settings className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-bold text-lg">ตั้งค่าระบบและขอบเขตพิกัดโรงเรียน</h3>
-              <p className="text-xs text-teal-100">กำหนดชื่อหน่วยงาน, เกณฑ์เวลา และรัศมีลงเวลา</p>
+              <p className="text-xs text-purple-100">กำหนดชื่อหน่วยงาน, เกณฑ์เวลา และรัศมีลงเวลา</p>
             </div>
           </div>
           <button
@@ -189,8 +189,8 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Left Column: Form Fields */}
             <div className="space-y-4">
-              <div className="pb-2 border-b border-slate-100">
-                <h4 className="text-sm font-bold text-[#0C7C82] flex items-center gap-2">
+              <div className="pb-2 border-b border-purple-100">
+                <h4 className="text-sm font-bold text-[#7C3AED] flex items-center gap-2">
                   <Building className="w-4 h-4" /> ข้อมูลโรงเรียนและสังกัด
                 </h4>
               </div>
@@ -202,8 +202,8 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                   required
                   value={formData.orgName}
                   onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
-                  placeholder="เช่น โรงเรียนอนุบาลอุดรธานี"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                  placeholder="เช่น โรงเรียนอนุบาลศรีสุทโธ"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                 />
               </div>
 
@@ -214,8 +214,8 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                   required
                   value={formData.orgAffiliation}
                   onChange={(e) => setFormData({ ...formData, orgAffiliation: e.target.value })}
-                  placeholder="เช่น สพป.อุดรธานี เขต 1"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                  placeholder="เช่น สพป.อุดรธานี เขต 3"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                 />
               </div>
 
@@ -230,13 +230,13 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                     value={formData.logoUrl || ''}
                     onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
                     placeholder="https://.../logo.png"
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                   />
                 </div>
               </div>
 
-              <div className="pt-2 pb-2 border-b border-slate-100">
-                <h4 className="text-sm font-bold text-[#0C7C82] flex items-center gap-2">
+              <div className="pt-2 pb-2 border-b border-purple-100">
+                <h4 className="text-sm font-bold text-[#7C3AED] flex items-center gap-2">
                   <Clock className="w-4 h-4" /> เกณฑ์เวลาปฏิบัติงาน
                 </h4>
               </div>
@@ -249,7 +249,7 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                     required
                     value={formData.lateTime}
                     onChange={(e) => setFormData({ ...formData, lateTime: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50 font-mono font-bold"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono font-bold"
                   />
                 </div>
 
@@ -260,20 +260,20 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                     required
                     value={formData.earlyTime}
                     onChange={(e) => setFormData({ ...formData, earlyTime: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50 font-mono font-bold"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono font-bold"
                   />
                 </div>
               </div>
 
-              <div className="pt-2 pb-2 border-b border-slate-100">
-                <h4 className="text-sm font-bold text-[#0C7C82] flex items-center gap-2">
+              <div className="pt-2 pb-2 border-b border-purple-100">
+                <h4 className="text-sm font-bold text-[#7C3AED] flex items-center gap-2">
                   <MapPin className="w-4 h-4" /> รัศมีพื้นที่อนุญาตให้ลงเวลา
                 </h4>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  รัศมีพื้นที่ (เมตร): <span className="text-[#0C7C82] font-extrabold">{formData.radius} เมตร</span>
+                  รัศมีพื้นที่ (เมตร): <span className="text-[#7C3AED] font-extrabold">{formData.radius} เมตร</span>
                 </label>
                 <input
                   type="range"
@@ -282,7 +282,7 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                   step="10"
                   value={formData.radius}
                   onChange={(e) => updateRadiusOnMap(parseInt(e.target.value, 10))}
-                  className="w-full accent-[#0C7C82] cursor-pointer"
+                  className="w-full accent-[#7C3AED] cursor-pointer"
                 />
               </div>
 
@@ -314,12 +314,12 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
             <div className="flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-[#0C7C82]" /> ลากหมุดเพื่อตั้งจุดศูนย์กลางโรงเรียน
+                  <MapPin className="w-3.5 h-3.5 text-[#7C3AED]" /> ลากหมุดเพื่อตั้งจุดศูนย์กลางโรงเรียน
                 </span>
                 <button
                   type="button"
                   onClick={handleCurrentGps}
-                  className="text-xs px-2.5 py-1 rounded-lg bg-teal-50 text-[#0C7C82] hover:bg-teal-100 font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-purple-50 text-[#7C3AED] hover:bg-purple-100 font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <Navigation className="w-3 h-3" /> ใช้พิกัดตำแหน่งปัจจุบัน
                 </button>
@@ -327,18 +327,18 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
 
               <div
                 ref={mapContainerRef}
-                className="w-full h-72 sm:h-80 rounded-2xl overflow-hidden border-2 border-slate-200 shadow-inner z-0"
+                className="w-full h-72 sm:h-80 rounded-2xl overflow-hidden border-2 border-purple-200 shadow-inner z-0"
               />
 
               <p className="text-[11px] text-slate-500 mt-2 text-center">
-                * วงกลมสีเขียวฟ้าคือรัศมีเขตพื้นที่อนุญาตให้สแกนลงเวลา ({formData.radius} เมตร)
+                * วงกลมสีม่วงพาสเทลคือรัศมีเขตพื้นที่อนุญาตให้สแกนลงเวลา ({formData.radius} เมตร)
               </p>
 
               <div className="mt-auto pt-6">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white font-bold text-sm shadow-md hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-bold text-sm shadow-md shadow-purple-900/20 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {loading ? (
                     <>

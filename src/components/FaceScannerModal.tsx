@@ -86,40 +86,42 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
         setGpsLoading(false);
       },
       (err) => {
+        console.error('GPS error:', err);
+        setGpsError('กรุณาเปิดสิทธิ์ GPS เพื่อตรวจสอบตำแหน่ง');
         setGpsLoading(false);
-        if (err.code === err.PERMISSION_DENIED) {
-          setGpsError('กรุณาเปิดสิทธิ์เข้าถึงตำแหน่ง GPS ของอุปกรณ์');
-        } else {
-          setGpsError('ไม่สามารถดึงตำแหน่งพิกัดได้ กรุณาลองใหม่อีกครั้ง');
-        }
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
     );
   };
 
-  // Start Camera
+  // Start Camera Stream
   const startCamera = async () => {
+    setCameraError(null);
     try {
-      setCameraError(null);
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
           width: { ideal: 640 },
-          height: { ideal: 480 }
+          height: { ideal: 640 }
         },
         audio: false
       });
+
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Camera access error:', err);
-      setCameraError('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตสิทธิ์การใช้งานกล้องในเบราว์เซอร์');
+      setCameraError('ไม่สามารถเข้าถึงกล้องหน้าได้ กรุณาอนุญาตการเข้าถึงกล้อง');
     }
   };
 
-  // Stop Camera
+  // Stop Camera Stream
   const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
@@ -131,76 +133,71 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
     if (isOpen) {
       startCamera();
       fetchLocation();
-      setIsScanning(false);
-      setScanProgress(0);
     } else {
       stopCamera();
     }
+
     return () => {
       stopCamera();
     };
   }, [isOpen]);
 
-  // Handle capture and verification
-  const handleVerifyAndCapture = () => {
-    // 1. Check MAC
+  // Handle Verify & Capture
+  const handleVerifyAndCapture = async () => {
     if (!macCheck.match) {
       Swal.fire({
-        title: 'ตรวจพบอุปกรณ์ไม่ถูกต้อง',
-        text: macCheck.message || 'รหัส MAC Address ไม่ตรงกับที่ลงทะเบียนไว้',
+        title: 'ไม่อนุญาตให้ลงเวลา!',
+        text: 'อุปกรณ์นี้ไม่ใช่เครื่องที่ลงทะเบียนไว้ (MAC Address ไม่ตรงกัน)',
         icon: 'error'
       });
       return;
     }
 
-    // 2. Check GPS
-    if (!coords) {
+    if (config.radius && distance !== null && distance > config.radius) {
       Swal.fire({
-        title: 'ไม่พบตำแหน่ง GPS',
-        text: 'กรุณาเปิดระบบระบุตำแหน่ง GPS เพื่อยืนยันว่าอยู่ในพื้นที่ปฏิบัติงาน',
+        title: 'อยู่นอกพื้นที่ที่กำหนด!',
+        html: `คุณอยู่ห่างจากโรงเรียน <b>${distance} เมตร</b><br>ซึ่งเกินรัศมีที่กำหนดไว้ (${config.radius} เมตร)<br>กรุณาอยู่ในพื้นที่โรงเรียนเพื่อลงเวลา`,
         icon: 'warning'
-      });
-      return;
-    }
-
-    // Check Distance Radius
-    if (distance !== null && config.radius && distance > config.radius) {
-      Swal.fire({
-        title: 'อยู่นอกพื้นที่ที่กำหนด',
-        html: `ตำแหน่งของคุณอยู่ห่างจากโรงเรียน <b>${distance} เมตร</b><br>(รัศมีที่อนุญาตคือไม่เกิน <b>${config.radius} เมตร</b>)`,
-        icon: 'error'
       });
       return;
     }
 
     // Start Biometric Scan Animation
     setIsScanning(true);
-    let p = 0;
+    setScanProgress(0);
+
     const interval = setInterval(() => {
-      p += 20;
-      setScanProgress(p);
-      if (p >= 100) {
-        clearInterval(interval);
-        captureSnapshot();
-      }
-    }, 150);
+      setScanProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          finishCapture();
+          return 100;
+        }
+        return prev + 20;
+      });
+    }, 200);
   };
 
-  const captureSnapshot = () => {
+  const finishCapture = () => {
+    setIsScanning(false);
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
     canvas.width = video.videoWidth || 480;
     canvas.height = video.videoHeight || 480;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw video frame to canvas
+    // Draw frame (mirror horizontally for natural selfie view)
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Optional timestamp watermark on snapshot
-    ctx.fillStyle = 'rgba(12, 124, 130, 0.7)';
+    // Optional timestamp watermark on snapshot with pastel purple accent
+    ctx.fillStyle = 'rgba(124, 58, 237, 0.75)';
     ctx.fillRect(0, canvas.height - 35, canvas.width, 35);
     ctx.font = '14px Sarabun';
     ctx.fillStyle = '#ffffff';
@@ -228,9 +225,9 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/75 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white">
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
+        {/* Header with Pastel Purple Theme */}
+        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
               <ScanLine className="w-6 h-6" />
@@ -239,7 +236,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               <h3 className="font-bold text-lg">
                 ระบบสแกนใบหน้าลงเวลา ({actionType === 'IN' ? 'เข้างาน' : 'กลับบ้าน'})
               </h3>
-              <p className="text-xs text-teal-100 font-medium">ยืนยันตัวตนด้วย Biometric & GPS พื้นที่</p>
+              <p className="text-xs text-purple-100 font-medium">ยืนยันตัวตนด้วย Biometric & GPS พื้นที่</p>
             </div>
           </div>
           <button
@@ -253,14 +250,14 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
         {/* Body content */}
         <div className="p-5 overflow-y-auto flex-1 flex flex-col items-center">
           {/* Scanner Viewport */}
-          <div className="relative w-full max-w-[340px] aspect-[4/4] rounded-2xl overflow-hidden bg-slate-900 border-4 border-[#35B4B0] shadow-inner mb-4 flex items-center justify-center">
+          <div className="relative w-full max-w-[340px] aspect-[4/4] rounded-2xl overflow-hidden bg-slate-900 border-4 border-[#8B5CF6] shadow-inner mb-4 flex items-center justify-center">
             {cameraError ? (
               <div className="p-6 text-center text-white">
                 <AlertCircle className="w-12 h-12 text-rose-400 mx-auto mb-3" />
                 <p className="text-sm font-medium mb-3">{cameraError}</p>
                 <button
                   onClick={startCamera}
-                  className="px-4 py-2 bg-[#35B4B0] hover:bg-[#0C7C82] text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 cursor-pointer transition-all"
+                  className="px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 cursor-pointer transition-all"
                 >
                   <RefreshCw className="w-4 h-4" /> ลองเปิดกล้องใหม่
                 </button>
@@ -281,7 +278,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                     className={`w-48 h-60 rounded-[50%] border-2 transition-all duration-300 ${
                       isScanning
                         ? 'border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.8)]'
-                        : 'border-[#35B4B0]/80 border-dashed animate-pulse'
+                        : 'border-[#8B5CF6]/80 border-dashed animate-pulse'
                     }`}
                   />
                   {isScanning && <div className="animate-scan-line" />}
@@ -289,8 +286,8 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
 
                 {/* Scan Status Badge */}
                 <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-                  <span className="px-3 py-1 bg-slate-900/80 backdrop-blur-md text-teal-300 rounded-full text-xs font-semibold flex items-center gap-1.5 border border-teal-500/30">
-                    <Camera className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
+                  <span className="px-3 py-1 bg-slate-900/80 backdrop-blur-md text-purple-200 rounded-full text-xs font-semibold flex items-center gap-1.5 border border-purple-500/30">
+                    <Camera className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
                     {isScanning ? `กำลังตรวจจับใบหน้า... ${scanProgress}%` : 'จัดใบหน้าให้อยู่ในกรอบ'}
                   </span>
                 </div>
@@ -352,7 +349,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
             <div
               className={`p-3 rounded-2xl flex items-center justify-between border ${
                 macCheck.match
-                  ? 'bg-teal-50 border-teal-200 text-teal-900'
+                  ? 'bg-purple-50 border-purple-200 text-purple-900'
                   : 'bg-rose-50 border-rose-200 text-rose-900'
               }`}
             >
@@ -368,7 +365,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                 </div>
               </div>
               {macCheck.match ? (
-                <CheckCircle2 className="w-4 h-4 text-teal-600" />
+                <CheckCircle2 className="w-4 h-4 text-purple-600" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-600" />
               )}
@@ -377,7 +374,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center gap-3">
+        <div className="p-4 bg-slate-50 border-t border-purple-50 flex items-center gap-3">
           <button
             onClick={onClose}
             className="flex-1 py-3 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-100 transition-colors cursor-pointer"
@@ -387,7 +384,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
           <button
             onClick={handleVerifyAndCapture}
             disabled={isScanning || !isLocationValid || !macCheck.match || !!cameraError}
-            className="flex-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white font-bold text-sm shadow-md hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
+            className="flex-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-bold text-sm shadow-md shadow-purple-900/20 hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
           >
             {isScanning ? (
               <>

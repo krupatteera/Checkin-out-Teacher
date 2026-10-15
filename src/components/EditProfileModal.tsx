@@ -98,16 +98,16 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white">
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
+        {/* Header with Pastel Purple Theme */}
+        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
               <UserCheck className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-bold text-lg">แก้ไขข้อมูลส่วนตัว</h3>
-              <p className="text-xs text-teal-100">รหัสผู้ใช้งาน: {user.username}</p>
+              <p className="text-xs text-purple-100">รหัสผู้ใช้งาน: {user.username}</p>
             </div>
           </div>
           <button
@@ -124,13 +124,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           <div className="flex flex-col items-center justify-center pt-1">
             <div
               onClick={() => document.getElementById('editImgFile')?.click()}
-              className="relative w-24 h-24 rounded-full border-2 border-dashed border-[#35B4B0] hover:border-[#0C7C82] flex flex-col items-center justify-center cursor-pointer overflow-hidden bg-slate-50 transition-all group"
+              className="relative w-24 h-24 rounded-full border-2 border-dashed border-[#A78BFA] hover:border-[#7C3AED] flex flex-col items-center justify-center cursor-pointer overflow-hidden bg-purple-50/50 transition-all group"
             >
               {previewImg ? (
                 <img src={previewImg} alt="Preview" className="w-full h-full object-cover" />
               ) : (
                 <>
-                  <Camera className="w-7 h-7 text-[#0C7C82]" />
+                  <Camera className="w-7 h-7 text-[#7C3AED]" />
                   <span className="text-[10px] text-slate-500 mt-1 font-medium">เปลี่ยนรูป</span>
                 </>
               )}
@@ -157,7 +157,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 required
                 value={formData.fullname}
                 onChange={(e) => setFormData({ ...formData, fullname: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
               />
             </div>
 
@@ -172,7 +172,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   placeholder="รหัสผ่านใหม่"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                 />
               </div>
             </div>
@@ -186,7 +186,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     type="text"
                     value={formData.position}
                     onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                   />
                 </div>
               </div>
@@ -199,7 +199,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     type="text"
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                   />
                 </div>
               </div>
@@ -213,14 +213,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/50"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
                 />
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+            <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200 text-xs text-slate-600">
               <span className="font-semibold">MAC Address ที่ลงทะเบียนไว้: </span>
-              <span className="font-mono text-teal-800">{user.registeredMac || 'ยังไม่ได้ผูกอุปกรณ์'}</span>
+              <span className="font-mono text-purple-900 font-bold">{user.registeredMac || 'ยังไม่ได้ผูกอุปกรณ์'}</span>
             </div>
           </div>
 
@@ -228,7 +228,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#0C7C82] to-[#35B4B0] text-white font-bold text-sm shadow-md hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-bold text-sm shadow-md shadow-purple-900/20 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? (
                 <>

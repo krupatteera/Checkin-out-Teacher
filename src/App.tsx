@@ -21,7 +21,10 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  UserCheck
+  UserCheck,
+  Users,
+  Settings,
+  FileClock
 } from 'lucide-react';
 import { SchoolConfig, UserAccount, AttendanceRecord } from './types';
 import {
@@ -60,7 +63,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<'home' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-logs'>('home');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Attendance user data
+  // Attendance user data (Teachers only)
   const [todaySummary, setTodaySummary] = useState({ in: '--:--', out: '--:--', leave: '', official: '' });
   const [userHistory, setUserHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -139,7 +142,12 @@ export default function App() {
         if (savedSession) {
           const parsed = JSON.parse(savedSession);
           setCurrentUser(parsed);
-          fetchUserAttendance(parsed.id);
+          if (parsed.role === 'admin') {
+            setCurrentTab('admin-dashboard');
+          } else {
+            fetchUserAttendance(parsed.id);
+            setCurrentTab('home');
+          }
         }
       } catch (err) {
         console.error('Initialization error:', err);
@@ -150,6 +158,13 @@ export default function App() {
 
     initApp();
   }, []);
+
+  // Ensure Admin never lands on teacher clock-in view
+  useEffect(() => {
+    if (currentUser?.role === 'admin' && currentTab === 'home') {
+      setCurrentTab('admin-dashboard');
+    }
+  }, [currentUser, currentTab]);
 
   // Fetch user attendance status
   const fetchUserAttendance = async (userId: string) => {
@@ -218,8 +233,12 @@ export default function App() {
         timer: 1500
       });
 
-      fetchUserAttendance(userDoc.id);
-      setCurrentTab('home');
+      if (userDoc.role === 'admin') {
+        setCurrentTab('admin-dashboard');
+      } else {
+        fetchUserAttendance(userDoc.id);
+        setCurrentTab('home');
+      }
     } catch (err: unknown) {
       setLoginLoading(false);
       Swal.fire('เกิดข้อผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
@@ -235,7 +254,7 @@ export default function App() {
       showCancelButton: true,
       confirmButtonText: 'ใช่, ออกจากระบบ',
       cancelButtonText: 'ยกเลิก',
-      confirmButtonColor: '#0C7C82'
+      confirmButtonColor: '#7C3AED'
     });
 
     if (res.isConfirmed) {
@@ -251,9 +270,9 @@ export default function App() {
     }
   };
 
-  // Open Face Scanner for Clock In / Out
+  // Open Face Scanner for Clock In / Out (Teachers only)
   const handleTriggerClock = (action: 'IN' | 'OUT') => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role === 'admin') return;
 
     if (todaySummary.leave) {
       Swal.fire('ไม่สามารถลงเวลาได้', `ระบบพบว่าคุณได้แจ้งลาหยุด (${todaySummary.leave}) ไปแล้วในวันนี้`, 'warning');
@@ -350,9 +369,9 @@ export default function App() {
     }
   };
 
-  // Handle Leave with Custom SweetAlert
+  // Handle Leave with Custom SweetAlert (Teachers only)
   const handleLeaveRequest = async () => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role === 'admin') return;
     if (todaySummary.leave) {
       Swal.fire('แจ้งลาแล้ว', 'วันนี้คุณได้ทำการแจ้งลาหยุดไปแล้ว', 'info');
       return;
@@ -389,9 +408,9 @@ export default function App() {
     }
   };
 
-  // Handle Official Duty
+  // Handle Official Duty (Teachers only)
   const handleOfficialDutyRequest = async () => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role === 'admin') return;
     if (todaySummary.official) {
       Swal.fire('บันทึกแล้ว', 'วันนี้คุณได้บันทึกไปราชการไปแล้ว', 'info');
       return;
@@ -430,15 +449,15 @@ export default function App() {
   // --------------------------------------------------------------------------
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-teal-50/40 to-slate-100 p-4 sm:p-6 lg:p-10">
+      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-purple-50/40 to-slate-100 p-4 sm:p-6 lg:p-10">
         <div className="flex-1 flex items-center justify-center py-6">
           {/* Horizontal Card for Login */}
-          <div className="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl shadow-teal-900/10 border border-slate-200/80 overflow-hidden grid grid-cols-1 md:grid-cols-12 transition-all">
-            {/* Left Column: School Information & Branding */}
-            <div className="md:col-span-5 bg-gradient-to-br from-[#0C7C82] via-[#075257] to-[#0C7C82] p-8 sm:p-10 text-white flex flex-col justify-between relative overflow-hidden">
+          <div className="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl shadow-purple-950/10 border border-purple-100 overflow-hidden grid grid-cols-1 md:grid-cols-12 transition-all">
+            {/* Left Column: School Information & Pastel Purple Branding */}
+            <div className="md:col-span-5 bg-gradient-to-br from-[#7C3AED] via-[#6D28D9] to-[#8B5CF6] p-8 sm:p-10 text-white flex flex-col justify-between relative overflow-hidden">
               {/* Decorative background glow */}
-              <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#35B4B0]/20 blur-3xl" />
-              <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-[#26A69A]/25 blur-3xl" />
+              <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#C4B5FD]/20 blur-3xl" />
+              <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-[#8B5CF6]/25 blur-3xl" />
 
               <div className="relative z-10">
                 <div className="flex items-center gap-4 mb-6">
@@ -454,7 +473,7 @@ export default function App() {
                     </div>
                   )}
                   <div>
-                    <span className="text-[11px] font-bold tracking-wider uppercase bg-white/20 text-teal-100 px-3 py-1 rounded-full border border-white/20">
+                    <span className="text-[11px] font-bold tracking-wider uppercase bg-white/20 text-purple-100 px-3 py-1 rounded-full border border-white/20">
                       ระบบลงเวลาปฏิบัติงานออนไลน์
                     </span>
                   </div>
@@ -463,13 +482,13 @@ export default function App() {
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-snug">
                   {config.orgName}
                 </h1>
-                <p className="text-xs sm:text-sm text-teal-100 font-medium mt-2 leading-relaxed opacity-95">
+                <p className="text-xs sm:text-sm text-purple-100 font-medium mt-2 leading-relaxed opacity-95">
                   {config.orgAffiliation}
                 </p>
 
                 <div className="mt-8 space-y-3 text-xs">
                   <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
-                    <Camera className="w-5 h-5 text-[#35B4B0] shrink-0" />
+                    <Camera className="w-5 h-5 text-[#C4B5FD] shrink-0" />
                     <span>สแกนใบหน้าตรวจสอบตัวตนผ่านมือถือ</span>
                   </div>
                   <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
@@ -484,9 +503,9 @@ export default function App() {
               </div>
 
               {/* Hardware Device Signature Info */}
-              <div className="relative z-10 mt-8 pt-4 border-t border-white/15 text-[11px] text-teal-100 flex items-center justify-between">
+              <div className="relative z-10 mt-8 pt-4 border-t border-white/15 text-[11px] text-purple-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-[#35B4B0]" />
+                  <Smartphone className="w-4 h-4 text-[#C4B5FD]" />
                   <span className="font-mono">{currentDeviceMac}</span>
                 </div>
                 <span className="text-[10px] bg-white/15 px-2 py-0.5 rounded-full">{deviceLabel}</span>
@@ -496,7 +515,7 @@ export default function App() {
             {/* Right Column: Unified Login Form (Teacher & Admin) */}
             <div className="md:col-span-7 p-8 sm:p-12 flex flex-col justify-center">
               <div className="mb-6">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-50 text-[#0C7C82] text-xs font-bold mb-2 border border-teal-200">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold mb-2 border border-purple-200">
                   <Lock className="w-3.5 h-3.5" /> เข้าสู่ระบบแบบรวมบทบาท
                 </div>
                 <h2 className="text-2xl font-extrabold text-slate-800">เข้าสู่ระบบ</h2>
@@ -518,7 +537,7 @@ export default function App() {
                       placeholder="เช่น kru.somchai หรือ admin"
                       value={loginUsername}
                       onChange={(e) => setLoginUsername(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/60 transition-all font-medium"
+                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/60 transition-all font-medium"
                     />
                   </div>
                 </div>
@@ -535,7 +554,7 @@ export default function App() {
                       placeholder="••••••••"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
-                      className="w-full pl-11 pr-11 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#35B4B0] text-sm bg-slate-50/60 transition-all font-medium"
+                      className="w-full pl-11 pr-11 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/60 transition-all font-medium"
                     />
                     <button
                       type="button"
@@ -551,7 +570,7 @@ export default function App() {
                   <button
                     type="submit"
                     disabled={loginLoading}
-                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#0C7C82] via-[#26A69A] to-[#35B4B0] text-white font-extrabold text-sm shadow-lg shadow-teal-800/25 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {loginLoading ? (
                       <>
@@ -572,7 +591,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setRegisterModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-teal-50 text-[#0C7C82] font-bold hover:bg-teal-100 transition-colors inline-flex items-center gap-1.5 cursor-pointer border border-teal-200/60"
+                  className="px-4 py-2 rounded-xl bg-purple-50 text-[#7C3AED] font-bold hover:bg-purple-100 transition-colors inline-flex items-center gap-1.5 cursor-pointer border border-purple-200/60"
                 >
                   <UserPlus className="w-4 h-4" /> เมนูลงทะเบียน (จดจำเครื่องนี้)
                 </button>
@@ -621,14 +640,14 @@ export default function App() {
       {/* Main Layout (Margin for Sidebar on LG screens) */}
       <div className="lg:pl-72 flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-purple-100 px-4 sm:px-8 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 -ml-2 rounded-xl text-slate-600 hover:bg-slate-100 lg:hidden cursor-pointer"
+              className="p-2 -ml-2 rounded-xl text-slate-600 hover:bg-purple-50 lg:hidden cursor-pointer"
               title="เปิดเมนู"
             >
-              <Menu className="w-6 h-6" />
+              <Menu className="w-6 h-6 text-[#7C3AED]" />
             </button>
 
             <div className="flex items-center gap-3">
@@ -636,10 +655,10 @@ export default function App() {
                 <img
                   src={config.logoUrl}
                   alt="Logo"
-                  className="w-9 h-9 rounded-xl object-cover shadow-sm border border-teal-100 hidden sm:block"
+                  className="w-9 h-9 rounded-xl object-cover shadow-sm border border-purple-200 hidden sm:block"
                 />
               ) : (
-                <div className="w-9 h-9 rounded-xl bg-[#0C7C82] text-white flex items-center justify-center hidden sm:flex">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#8B5CF6] text-white flex items-center justify-center hidden sm:flex shadow-sm">
                   <School className="w-5 h-5" />
                 </div>
               )}
@@ -647,7 +666,7 @@ export default function App() {
                 <h2 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight">
                   {config.orgName}
                 </h2>
-                <p className="text-[11px] text-teal-700 font-medium hidden sm:block">
+                <p className="text-[11px] text-purple-700 font-medium hidden sm:block">
                   {config.orgAffiliation}
                 </p>
               </div>
@@ -658,22 +677,22 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div
               onClick={() => setEditProfileModalOpen(true)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-teal-50 border border-slate-200 hover:border-teal-300 transition-all cursor-pointer group"
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100/70 border border-purple-200 transition-all cursor-pointer group"
             >
               <img
                 src={
                   currentUser.img ||
                   `https://ui-avatars.com/api/?name=${encodeURIComponent(
                     currentUser.fullname
-                  )}&background=0C7C82&color=fff`
+                  )}&background=8B5CF6&color=fff`
                 }
                 alt="Profile"
                 className="w-7 h-7 rounded-full object-cover border border-white"
               />
-              <span className="text-xs font-bold text-slate-700 group-hover:text-[#0C7C82]">
+              <span className="text-xs font-bold text-slate-700 group-hover:text-[#7C3AED]">
                 {currentUser.fullname.split(' ')[0]}
               </span>
-              <span className="text-[10px] bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-[10px] bg-purple-200/80 text-purple-900 px-2 py-0.5 rounded-full font-bold">
                 {currentUser.role === 'admin' ? 'Admin' : 'ครู'}
               </span>
             </div>
@@ -688,24 +707,93 @@ export default function App() {
           </div>
         </header>
 
+        {/* Admin Navigation Ribbon (แถบเมนูลัดเฉพาะผู้ดูแลระบบ - ไม่มีการลงเวลาปฏิบัติงาน) */}
+        {currentUser.role === 'admin' && (
+          <div className="bg-white border-b border-purple-100 px-4 sm:px-8 py-2.5 overflow-x-auto flex items-center gap-2 shadow-xs z-20">
+            <button
+              onClick={() => setCurrentTab('admin-dashboard')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+                currentTab === 'admin-dashboard'
+                  ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
+                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
+              }`}
+            >
+              <CalendarCheck className="w-4 h-4" />
+              <span>ภาพรวมประจำวัน</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentTab('admin-summary')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+                currentTab === 'admin-summary'
+                  ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
+                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>สรุปรายบุคคล (เดือน)</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentTab('admin-map')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+                currentTab === 'admin-map'
+                  ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
+                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
+              }`}
+            >
+              <MapPin className="w-4 h-4" />
+              <span>แผนที่ดาวเทียม</span>
+            </button>
+
+            <button
+              onClick={() => setUsersModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Users className="w-4 h-4 text-[#8B5CF6]" />
+              <span>จัดการสมาชิก/ครู</span>
+            </button>
+
+            <button
+              onClick={() => setConfigModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Settings className="w-4 h-4 text-[#8B5CF6]" />
+              <span>ตั้งค่าระบบ/ขอบเขต</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentTab('admin-logs')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+                currentTab === 'admin-logs'
+                  ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
+                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
+              }`}
+            >
+              <FileClock className="w-4 h-4" />
+              <span>ประวัติระบบ (Logs)</span>
+            </button>
+          </div>
+        )}
+
         {/* Main Content Area */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
-          {/* USER HOME VIEW (Attendance Clocking Dashboard) */}
-          {currentTab === 'home' && (
+          {/* TEACHER HOME VIEW (Attendance Clocking Dashboard - For Teachers Only!) */}
+          {currentUser.role !== 'admin' && currentTab === 'home' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Clock & Teacher Profile Card */}
               <div className="lg:col-span-5 space-y-6">
-                <div className="bg-white rounded-[32px] overflow-hidden shadow-xl shadow-slate-200/50 border border-slate-100">
-                  {/* Digital Clock Banner */}
-                  <div className="bg-gradient-to-br from-[#0C7C82] via-[#26A69A] to-[#35B4B0] p-8 text-white text-center relative overflow-hidden">
-                    <div className="text-[11px] font-bold tracking-widest uppercase bg-white/20 text-teal-100 px-3 py-1 rounded-full border border-white/20 inline-block mb-3">
+                <div className="bg-white rounded-[32px] overflow-hidden shadow-xl shadow-purple-950/5 border border-purple-100">
+                  {/* Digital Clock Banner with Pastel Purple Gradient */}
+                  <div className="bg-gradient-to-br from-[#6D28D9] via-[#7C3AED] to-[#8B5CF6] p-8 text-white text-center relative overflow-hidden">
+                    <div className="text-[11px] font-bold tracking-widest uppercase bg-white/20 text-purple-100 px-3 py-1 rounded-full border border-white/20 inline-block mb-3">
                       เวลาประเทศไทย (GMT+7)
                     </div>
                     <div className="flex items-baseline justify-center font-mono font-extrabold text-5xl sm:text-6xl tracking-tight drop-shadow-md">
                       <span>{timeString.hourMin}</span>
                       <span className="text-2xl sm:text-3xl opacity-80 ml-1">:{timeString.sec}</span>
                     </div>
-                    <div className="text-xs sm:text-sm text-teal-100 font-semibold mt-2 opacity-95">
+                    <div className="text-xs sm:text-sm text-purple-100 font-semibold mt-2 opacity-95">
                       {thaiDateString}
                     </div>
                   </div>
@@ -718,14 +806,14 @@ export default function App() {
                           currentUser.img ||
                           `https://ui-avatars.com/api/?name=${encodeURIComponent(
                             currentUser.fullname
-                          )}&background=0C7C82&color=fff`
+                          )}&background=8B5CF6&color=fff`
                         }
                         alt="Profile"
                         className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-lg mx-auto bg-white"
                       />
                       <button
                         onClick={() => setEditProfileModalOpen(true)}
-                        className="absolute bottom-0 right-0 p-1.5 rounded-full bg-[#0C7C82] text-white shadow-md hover:bg-[#075257] cursor-pointer"
+                        className="absolute bottom-0 right-0 p-1.5 rounded-full bg-[#7C3AED] text-white shadow-md hover:bg-[#6D28D9] cursor-pointer"
                         title="แก้ไขข้อมูลส่วนตัว"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
@@ -738,19 +826,19 @@ export default function App() {
                     </p>
 
                     {/* Bound Device MAC Info */}
-                    <div className="mt-5 p-3 rounded-2xl bg-teal-50/80 border border-teal-200/80 text-left text-xs flex items-center justify-between">
+                    <div className="mt-5 p-3 rounded-2xl bg-purple-50/80 border border-purple-200/80 text-left text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-[#0C7C82] shrink-0" />
+                        <ShieldCheck className="w-4 h-4 text-[#7C3AED] shrink-0" />
                         <div>
                           <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
                             MAC Address ที่ผูกไว้
                           </div>
-                          <div className="font-mono font-bold text-teal-900 text-xs">
+                          <div className="font-mono font-bold text-purple-900 text-xs">
                             {currentUser.registeredMac || currentDeviceMac}
                           </div>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
                         {deviceLabel}
                       </span>
                     </div>
@@ -758,7 +846,7 @@ export default function App() {
                     {/* School Center Location & Radius Badge */}
                     <div className="mt-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-left text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-teal-600 shrink-0" />
+                        <MapPin className="w-4 h-4 text-purple-600 shrink-0" />
                         <div>
                           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                             จุดลงเวลาโรงเรียน
@@ -779,10 +867,10 @@ export default function App() {
               {/* Right Column: 4 Action Cards & Attendance History */}
               <div className="lg:col-span-7 space-y-6">
                 {/* 4 Action Cards Grid */}
-                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 space-y-4">
+                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                     <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                      <CalendarCheck className="w-5 h-5 text-[#0C7C82]" /> บันทึกเวลาปฏิบัติงานวันนี้
+                      <CalendarCheck className="w-5 h-5 text-[#7C3AED]" /> บันทึกเวลาปฏิบัติงานวันนี้
                     </h3>
                     <span className="text-xs text-slate-400 font-medium">{thaiDateString}</span>
                   </div>
@@ -889,14 +977,14 @@ export default function App() {
                 </div>
 
                 {/* Recent History Table */}
-                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100">
+                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-[#0C7C82]" /> ประวัติการลงเวลาย้อนหลัง
+                      <Clock className="w-4 h-4 text-[#7C3AED]" /> ประวัติการลงเวลาย้อนหลัง
                     </h3>
                     <button
                       onClick={() => fetchUserAttendance(currentUser.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#0C7C82] transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#7C3AED] transition-colors cursor-pointer"
                       title="รีเฟรชข้อมูล"
                     >
                       <RefreshCw className={`w-4 h-4 ${historyLoading ? 'animate-spin' : ''}`} />
@@ -905,7 +993,7 @@ export default function App() {
 
                   {historyLoading ? (
                     <div className="py-8 text-center text-slate-400">
-                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#0C7C82]" />
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#7C3AED]" />
                       <p className="text-xs">กำลังโหลดประวัติ...</p>
                     </div>
                   ) : userHistory.length === 0 ? (
@@ -918,7 +1006,7 @@ export default function App() {
                       {userHistory.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-teal-50/40 transition-colors"
+                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-purple-50/30 transition-colors"
                         >
                           <div className="flex items-center gap-3">
                             <div
@@ -965,17 +1053,11 @@ export default function App() {
             </div>
           )}
 
-          {/* ADMIN VIEWS (Dashboard, Summary, Map, Logs) */}
-          {currentTab.startsWith('admin') && (
+          {/* ADMIN MANAGEMENT DASHBOARD (ผู้ดูแลระบบเท่านั้น - ไม่มีการลงเวลาปฏิบัติงาน) */}
+          {currentUser.role === 'admin' && (
             <AdminReports
               config={config}
-              currentUser={currentUser}
-              todaySummary={todaySummary}
-              onTriggerClock={(action) => handleTriggerClock(action)}
-              onLeaveRequest={handleLeaveRequest}
-              onOfficialDutyRequest={handleOfficialDutyRequest}
-              onGoToPersonalAttendance={() => setCurrentTab('home')}
-              activeView={currentTab.replace('admin-', '') as any}
+              activeView={currentTab.startsWith('admin-') ? currentTab.replace('admin-', '') as any : 'dashboard'}
               selectedDate={selectedAdminDate}
               onDateChange={setSelectedAdminDate}
               selectedMonth={selectedAdminMonth}
@@ -985,13 +1067,13 @@ export default function App() {
         </main>
 
         {/* Global Footer */}
-        <footer className="text-center py-6 text-xs font-semibold text-slate-400 border-t border-slate-200/60 bg-white/60">
+        <footer className="text-center py-6 text-xs font-semibold text-slate-400 border-t border-purple-100 bg-white/60">
           ระบบลงเวลาปฏิบัติงานออนไลน์ {config.orgName} โดย รองฯภัทรธีระ ประทุมเม
         </footer>
       </div>
 
       {/* MODALS */}
-      {/* 1. Biometric Face Scanner Modal */}
+      {/* 1. Biometric Face Scanner Modal (Teachers only) */}
       <FaceScannerModal
         actionType={faceActionType}
         user={currentUser}

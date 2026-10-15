@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #0C7C82;
-  --color-primary-light: #35B4B0;
-  --color-teal-dark: #075257;
-  --color-teal-surface: #E0F2F1;
+  --color-primary: #8B5CF6;
+  --color-primary-light: #C4B5FD;
+  --color-primary-dark: #6D28D9;
+  --color-primary-surface: #F5F3FF;
   --color-accent-teal: #26A69A;
   --color-accent-lime: #AED581;
   --color-accent-yellow: #FFCA28;
   --color-accent-peach: #FF8A65;
   --color-accent-rose: #EF5350;
-  --color-accent-purple: #4A2C6D;
+  --color-accent-purple: #8B5CF6;
   --color-accent-red: #D32F2F;
   --color-accent-orange: #F57C00;
   --color-accent-gold: #FBC02D;
@@ -61,14 +61,14 @@ body {
   left: 5%;
   right: 5%;
   height: 3px;
-  background: linear-gradient(90deg, transparent, #35B4B0, #0C7C82, #35B4B0, transparent);
-  box-shadow: 0 0 15px #35B4B0;
+  background: linear-gradient(90deg, transparent, #C4B5FD, #8B5CF6, #C4B5FD, transparent);
+  box-shadow: 0 0 15px #8B5CF6;
   animation: scanSweep 2.2s ease-in-out infinite;
 }
 
 /* iOS App Icon Style */
 .ios-icon-shadow {
-  box-shadow: 0 8px 18px -4px rgba(12, 124, 130, 0.25), 0 2px 6px -1px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 18px -4px rgba(139, 92, 246, 0.28), 0 2px 6px -1px rgba(0, 0, 0, 0.08);
 }
 .ios-icon-glow:hover {
   transform: translateY(-3px) scale(1.02);
@@ -83,12 +83,12 @@ body {
   transform: translateX(-50%);
   width: calc(100% - 2rem);
   max-width: 480px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 28px;
   border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 12px 35px -8px rgba(12, 124, 130, 0.18), 0 4px 12px rgba(0,0,0,0.05);
+  box-shadow: 0 12px 35px -8px rgba(139, 92, 246, 0.22), 0 4px 12px rgba(0,0,0,0.05);
   z-index: 40;
 }
 

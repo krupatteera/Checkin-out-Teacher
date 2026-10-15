@@ -84,8 +84,8 @@ testConnection();
 
 // Default initial config
 export const DEFAULT_CONFIG: SchoolConfig = {
-  orgName: "โรงเรียนอนุบาลอุดรธานี",
-  orgAffiliation: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุดรธานี เขต 1",
+  orgName: "โรงเรียนอนุบาลศรีสุทโธ",
+  orgAffiliation: "สพป.อุดรธานี เขต 3",
   logoUrl: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=160&q=80",
   lateTime: "08:30",
   earlyTime: "16:30",
