@@ -126,16 +126,23 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     const video = videoRef.current;
     if (!video) return;
 
+    const vw = video.videoWidth || 480;
+    const vh = video.videoHeight || 480;
+    const cropSize = Math.min(vw, vh);
+    const sx = (vw - cropSize) / 2;
+    const sy = (vh - cropSize) / 2;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 480;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = 480;
+    canvas.height = 480;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     // Mirror image for natural selfie feel
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Crop tightly to center face to eliminate wide background
+    ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
 
     const rawDataUrl = canvas.toDataURL('image/jpeg', 0.85);
     stopCamera();

@@ -73,12 +73,13 @@ async function startServer() {
 
       const prompt = `You are an AI Biometric Facial Analysis engine for a school attendance system. 
 Analyze the provided face image for user registration.
+CRITICAL: Focus exclusively on the facial area and facial biometrics. Disregard the background completely.
 Evaluate:
 1. Does it contain a clear, real human face? (hasFace: boolean, faceCount: integer)
-2. Is the image clear, well-lit, and suitable for biometric ID? (isClear: boolean, quality: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR')
+2. Is the facial biometric clear and suitable for biometric ID? (isClear: boolean, quality: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR')
 3. Confidence score 0-100 (confidence: number)
-4. A concise descriptive facial summary in Thai language (descriptor: string, e.g., 'โครงหน้ารูปไข่ สัดส่วนดวงตาและคิ้วชัดเจน ผิวหน้าสว่างสมดุล')
-5. Overall AI summary verdict in Thai language (aiSummary: string, e.g., 'AI ตรวจพบใบหน้าชัดเจน คุณภาพดีเยี่ยม พร้อมลงทะเบียนฐานข้อมูลชีวภาพ')
+4. A concise descriptive facial summary in Thai language (descriptor: string, e.g., 'โครงหน้ารูปไข่ สัดส่วนดวงตาและคิ้วชัดเจน ผิวหน้าสว่างสมดุล [บันทึกเฉพาะใบหน้า]')
+5. Overall AI summary verdict in Thai language (aiSummary: string, e.g., 'AI ตรวจพบใบหน้าชัดเจน คุณภาพดีเยี่ยม พร้อมลงทะเบียนฐานข้อมูลชีวภาพ (ไม่รวมพื้นหลัง)')
 
 Respond strictly with JSON according to the schema.`;
 
@@ -159,18 +160,31 @@ Respond strictly with JSON according to the schema.`;
         });
       }
 
-      const prompt = `You are an AI Biometric Facial Recognition Engine for teacher attendance.
-Compare Image 1 (registered face in database for user "${fullname || username || 'ครู'}") with Image 2 (live webcam frame captured at clock-in).
+      const prompt = `You are a high-precision AI Biometric Facial Recognition Engine for an attendance system.
+Compare Image 1 (registered facial database for user "${fullname || username || 'ครู'}") with Image 2 (live frame captured at clock-in).
 
-CRITICAL VERIFICATION RULES:
-1. Examine Image 2: Does it contain a clear, forward-facing human face?
-   If it is a wall, ceiling, background, hand, covered face, blurry, or no human face is detected:
-   Return: isMatch = false, confidenceScore = 10, analysis = "ไม่พบใบหน้าชัดเจนในกรอบวงรี กรุณาจัดใบหน้าให้อยู่ตรงกลาง", liveness = "SUSPICIOUS".
-2. If a human face is present in Image 2, compare the facial structure, eye shape/distance, nose contour, mouth, and identity with Image 1:
-   - If they are the SAME PERSON (matching facial biometrics):
-     Return: isMatch = true, confidenceScore = (calculated percentage 75-99%), analysis = "AI ยืนยันสำเร็จ: ใบหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (" + confidenceScore + "%)", liveness = "PASS".
-   - If they are DIFFERENT PEOPLE or facial features do not match:
-     Return: isMatch = false, confidenceScore = (calculated percentage 20-55%), analysis = "ภาพยังไม่ตรงกับฐานข้อมูล (" + confidenceScore + "%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว", liveness = "SUSPICIOUS".
+MANDATORY BIOMETRIC INSTRUCTIONS (CRITICAL):
+1. STRICT FACIAL BIOMETRICS ONLY:
+   - Analyze ONLY the human face: skull & bone structure, inter-pupillary distance, eye socket & eyelid contours, eyebrow arches, nose bridge/nostril geometry, lips/mouth shape, and jawline curvature.
+2. ABSOLUTE BACKGROUND DISREGARD:
+   - You MUST 100% IGNORE AND DISREGARD THE BACKGROUND, room walls, furniture, indoor/outdoor setting, weather, lighting differences, clothing, and background colors.
+   - The background in Image 1 and Image 2 WILL OFTEN BE COMPLETELY DIFFERENT. Different backgrounds MUST NOT cause a mismatch!
+3. MATCH DECISION:
+   - If Image 2 contains a forward-facing face and the facial structure and landmarks belong to the SAME PERSON as Image 1 (regardless of background, lighting, or hairstyle changes):
+     isMatch = true
+     confidenceScore = 80-99 (accurate integer percentage)
+     analysis = "AI ยืนยันสำเร็จ: โครงหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (" + confidenceScore + "%) [วิเคราะห์เฉพาะใบหน้า ไม่รวมพื้นหลัง]"
+     liveness = "PASS"
+   - If Image 2 has no clear human face (e.g. wall, floor, hand, ceiling, obstruction):
+     isMatch = false
+     confidenceScore = 10
+     analysis = "ไม่พบใบหน้าชัดเจนในกรอบวงรี กรุณาจัดใบหน้าให้อยู่ตรงกลาง"
+     liveness = "SUSPICIOUS"
+   - If Image 2 contains a face, but the biometric facial structure clearly belongs to a DIFFERENT PERSON:
+     isMatch = false
+     confidenceScore = 20-55
+     analysis = "ภาพยังไม่ตรงกับฐานข้อมูล (" + confidenceScore + "%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว"
+     liveness = "SUSPICIOUS"
 
 Respond strictly in JSON matching the schema.`;
 

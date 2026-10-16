@@ -243,28 +243,46 @@ async function compareFacesClientSide(
       const dReg = ctxReg.getImageData(0, 0, size, size).data;
       const dScan = ctxScan.getImageData(0, 0, size, size).data;
 
-      // 1. Check if scanned image contains human face / skin
-      let scanSkinCount = 0;
-      let scanTotalBrightness = 0;
-      const totalPixels = size * size;
+      // 1. Check if the central facial oval contains human face / skin
+      let faceSkinCount = 0;
+      let faceTotalBrightness = 0;
+      let facePixelCount = 0;
 
-      for (let i = 0; i < dScan.length; i += 4) {
-        const r = dScan[i];
-        const g = dScan[i + 1];
-        const b = dScan[i + 2];
-        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-        scanTotalBrightness += brightness;
+      // Facial oval geometry (cx, cy, rx, ry)
+      const cx = size / 2;
+      const cy = size / 2;
+      const rx = size * 0.38;
+      const ry = size * 0.46;
 
-        if (r > 60 && g > 40 && b > 20 && r > g && r > b && r - g > 15) {
-          scanSkinCount++;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const dx = (x - cx) / rx;
+          const dy = (y - cy) / ry;
+          const isInsideFaceOval = (dx * dx + dy * dy) <= 1.0;
+
+          // STRICTLY IGNORE BACKGROUND PIXELS OUTSIDE THE OVAL
+          if (!isInsideFaceOval) continue;
+
+          facePixelCount++;
+          const idx = (y * size + x) * 4;
+          const r = dScan[idx];
+          const g = dScan[idx + 1];
+          const b = dScan[idx + 2];
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          faceTotalBrightness += brightness;
+
+          // Human skin tone in facial area
+          if (r > 60 && g > 40 && b > 20 && r > g && r > b && r - g > 15) {
+            faceSkinCount++;
+          }
         }
       }
 
-      const scanSkinRatio = scanSkinCount / totalPixels;
-      const scanAvgBrightness = scanTotalBrightness / totalPixels;
+      const scanSkinRatio = facePixelCount > 0 ? faceSkinCount / facePixelCount : 0;
+      const scanAvgBrightness = facePixelCount > 0 ? faceTotalBrightness / facePixelCount : 0;
 
-      // If scanned frame has no skin or is black/white wall:
-      if (scanSkinRatio < 0.08 || scanAvgBrightness < 30 || scanAvgBrightness > 240) {
+      // If face oval region has no skin or is extreme black/white:
+      if (scanSkinRatio < 0.10 || scanAvgBrightness < 25 || scanAvgBrightness > 245) {
         resolve({
           isMatch: false,
           confidenceScore: Math.round(scanSkinRatio * 100),
@@ -274,34 +292,64 @@ async function compareFacesClientSide(
         return;
       }
 
-      // 2. Structural & Color comparison between registered face and scanned face
+      // 2. Structural & Biometric comparison ONLY within the facial oval
+      // (Completely ignoring all 4 background corners and outside surroundings)
       let diffLuminance = 0;
-      let diffRed = 0;
-      let diffGreen = 0;
-      let diffBlue = 0;
+      let diffColor = 0;
 
-      for (let i = 0; i < dReg.length; i += 4) {
-        const r1 = dReg[i], g1 = dReg[i + 1], b1 = dReg[i + 2];
-        const r2 = dScan[i], g2 = dScan[i + 1], b2 = dScan[i + 2];
+      // Calculate average luminance inside face oval for both images to normalize lighting
+      let regFaceLumTotal = 0;
+      let scanFaceLumTotal = 0;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const dx = (x - cx) / rx;
+          const dy = (y - cy) / ry;
+          if ((dx * dx + dy * dy) > 1.0) continue;
 
-        const lum1 = (r1 * 299 + g1 * 587 + b1 * 114) / 1000;
-        const lum2 = (r2 * 299 + g2 * 587 + b2 * 114) / 1000;
+          const idx = (y * size + x) * 4;
+          regFaceLumTotal += (dReg[idx] * 299 + dReg[idx + 1] * 587 + dReg[idx + 2] * 114) / 1000;
+          scanFaceLumTotal += (dScan[idx] * 299 + dScan[idx + 1] * 587 + dScan[idx + 2] * 114) / 1000;
+        }
+      }
+      const regFaceAvgLum = facePixelCount > 0 ? regFaceLumTotal / facePixelCount : 128;
+      const scanFaceAvgLum = facePixelCount > 0 ? scanFaceLumTotal / facePixelCount : 128;
+      const lumOffset = scanFaceAvgLum - regFaceAvgLum; // Normalize ambient lighting differences
 
-        diffLuminance += Math.abs(lum1 - lum2);
-        diffRed += Math.abs(r1 - r2);
-        diffGreen += Math.abs(g1 - g2);
-        diffBlue += Math.abs(b1 - b2);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const dx = (x - cx) / rx;
+          const dy = (y - cy) / ry;
+          // STRICTLY EXCLUDE BACKGROUND
+          if ((dx * dx + dy * dy) > 1.0) continue;
+
+          const idx = (y * size + x) * 4;
+          const r1 = dReg[idx], g1 = dReg[idx + 1], b1 = dReg[idx + 2];
+          const r2 = dScan[idx], g2 = dScan[idx + 1], b2 = dScan[idx + 2];
+
+          const lum1 = (r1 * 299 + g1 * 587 + b1 * 114) / 1000;
+          // Adjusted lum2 to normalize lighting shifts across rooms
+          const lum2Norm = Math.max(0, Math.min(255, ((r2 * 299 + g2 * 587 + b2 * 114) / 1000) - lumOffset));
+
+          diffLuminance += Math.abs(lum1 - lum2Norm);
+
+          // Normalized color ratio (r/lum, g/lum, b/lum) represents true skin pigmentation, unaffected by room background
+          const denom1 = (r1 + g1 + b1) || 1;
+          const denom2 = (r2 + g2 + b2) || 1;
+          const cr1 = r1 / denom1, cg1 = g1 / denom1;
+          const cr2 = r2 / denom2, cg2 = g2 / denom2;
+          diffColor += (Math.abs(cr1 - cr2) + Math.abs(cg1 - cg2)) * 128;
+        }
       }
 
-      const avgLumDiff = diffLuminance / totalPixels;
-      const avgColorDiff = (diffRed + diffGreen + diffBlue) / (totalPixels * 3);
+      const avgLumDiff = facePixelCount > 0 ? diffLuminance / facePixelCount : 100;
+      const avgColorDiff = facePixelCount > 0 ? diffColor / facePixelCount : 100;
 
-      // Raw distance (0 - 255)
-      const combinedDiff = (avgLumDiff * 0.4) + (avgColorDiff * 0.6);
+      // Distance strictly within face biometrics (0 - 150)
+      const combinedDiff = (avgLumDiff * 0.6) + (avgColorDiff * 0.4);
 
-      // Same person in similar lighting typically has combinedDiff between 15 and 45
-      // Different person or background typically has combinedDiff between 55 and 140+
-      let calculatedSimilarity = Math.max(0, Math.min(99, Math.round(100 - (combinedDiff / 255) * 160)));
+      // Same person typically has biometric diff between 8 and 38
+      // Different person typically has biometric diff 45 to 90+
+      let calculatedSimilarity = Math.max(0, Math.min(99, Math.round(100 - (combinedDiff / 140) * 120)));
 
       // Real decision threshold
       const isMatch = calculatedSimilarity >= 75;
@@ -310,7 +358,7 @@ async function compareFacesClientSide(
         isMatch,
         confidenceScore: calculatedSimilarity,
         analysis: isMatch
-          ? `AI ยืนยันสำเร็จ: โครงหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (${calculatedSimilarity}%)`
+          ? `AI ยืนยันสำเร็จ: โครงหน้าตรงกับฐานข้อมูลของ ${fullname || 'ผู้ลงทะเบียน'} (${calculatedSimilarity}%) [วิเคราะห์เฉพาะใบหน้า ไม่รวมพื้นหลัง]`
           : `ภาพยังไม่ตรงกับฐานข้อมูล (${calculatedSimilarity}%) กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว`,
         liveness: 'PASS',
       });

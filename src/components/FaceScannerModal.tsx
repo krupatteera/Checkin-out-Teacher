@@ -242,7 +242,13 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
     setOvalStatus((prev) => (prev === 'GREEN' ? 'GREEN' : 'SCANNING'));
 
     try {
-      // Capture frame centered on the face
+      // Crop tightly to center to isolate face and eliminate background
+      const vw = video.videoWidth || 480;
+      const vh = video.videoHeight || 480;
+      const cropSize = Math.min(vw, vh);
+      const sx = (vw - cropSize) / 2;
+      const sy = (vh - cropSize) / 2;
+
       canvas.width = 480;
       canvas.height = 480;
       const ctx = canvas.getContext('2d');
@@ -254,7 +260,8 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
       // Mirror horizontally for selfie view
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // Center-crop video to isolate face and remove wide background
+      ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
 
       // Watermark
       ctx.fillStyle = 'rgba(124, 58, 237, 0.85)';
@@ -372,40 +379,59 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        stopCamera();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[95vh]">
-        {/* Header with Pastel Purple Theme */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-sm">
-              <ScanLine className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-lg leading-tight">
-                ระบบลงเวลาปฏิบัติงาน ({actionType === 'IN' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'})
-              </h3>
-              <p className="text-xs text-purple-100 font-medium mt-0.5">
-                ตรวจสอบครบ 3 ขั้นตอน: 1. Bluetooth MAC &bull; 2. GPS &bull; 3. สแกนใบหน้า AI
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-white/80 hover:text-white hover:bg-white/20 rounded-full transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          stopCamera();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-md animate-fadeIn"
+    >
+      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[96vh]">
+        {/* Floating Close Button (Top-Right) */}
+        <button
+          type="button"
+          onClick={() => {
+            stopCamera();
+            onClose();
+          }}
+          className="absolute top-3 right-3 z-30 p-2.5 bg-slate-900/60 hover:bg-slate-900/85 text-white/90 hover:text-white rounded-full backdrop-blur-md transition-all cursor-pointer shadow-lg border border-white/25 hover:scale-105"
+          title="ปิดหน้าต่าง"
+        >
+          <X className="w-5 h-5" />
+        </button>
 
-        {/* Modal Scrollable Content */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 flex flex-col items-center">
+        {/* Modal Scrollable Content (No Header - Maximized Face Scan Area) */}
+        <div className="p-3 sm:p-5 overflow-y-auto flex-1 flex flex-col items-center pt-3">
           {/* ======================================================== */}
-          {/* CAMERA VIEWPORT WITH PERFECT HUMAN-HEAD PROPORTION OVAL  */}
+          {/* CAMERA VIEWPORT WITH EXPANDED FACE SCAN AREA             */}
           {/* ======================================================== */}
-          <div className="relative w-full max-w-[340px] h-[380px] sm:h-[400px] rounded-3xl overflow-hidden bg-slate-950 border-4 border-purple-200 shadow-xl mb-3 flex items-center justify-center">
+          <div className="relative w-full max-w-[360px] h-[440px] sm:h-[480px] rounded-3xl overflow-hidden bg-slate-950 border-4 border-purple-200 shadow-xl mb-3 flex items-center justify-center shrink-0">
+            {/* Top-Left Floating Action Badge */}
+            <div className="absolute top-3 left-3 z-20 px-3.5 py-1.5 bg-slate-900/75 backdrop-blur-md rounded-2xl text-white text-xs font-bold flex items-center gap-2 border border-white/20 shadow-lg">
+              <ScanLine className="w-4 h-4 text-purple-300" />
+              <span>{actionType === 'IN' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'}</span>
+              <span className="text-[10px] text-purple-200 font-normal border-l border-white/20 pl-2">
+                เฉพาะใบหน้า AI
+              </span>
+            </div>
+
             {cameraError ? (
               <div className="p-6 text-center text-white">
                 <AlertCircle className="w-12 h-12 text-rose-400 mx-auto mb-3" />
@@ -429,12 +455,12 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                 />
 
                 {/* ==================================================== */}
-                {/* OVAL GUIDE (วงรีจับใบหน้า)                           */}
+                {/* OVAL GUIDE (วงรีจับใบหน้า - ขยายเต็มพื้นที่)         */}
                 {/* เขียว = ผ่าน, แดง = ไม่ตรง ขยับกล้องเรื่อยๆ          */}
                 {/* ==================================================== */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div
-                    className={`w-[230px] h-[300px] rounded-[50%] transition-all duration-300 flex flex-col items-center justify-center relative ${
+                    className={`w-[245px] h-[325px] rounded-[50%] transition-all duration-300 flex flex-col items-center justify-center relative ${
                       ovalStatus === 'GREEN'
                         ? 'border-4 border-emerald-500 shadow-[0_0_45px_rgba(16,185,129,0.95)] bg-emerald-500/15'
                         : ovalStatus === 'RED'
@@ -521,17 +547,17 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
 
                 {/* Database Reference Face Thumbnail */}
                 {user.img && (
-                  <div className="absolute top-3 left-3 bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-2xl flex items-center gap-2 pr-3 border border-white/20 shadow-lg">
+                  <div className="absolute bottom-3 left-3 z-20 bg-slate-900/85 backdrop-blur-sm p-1.5 rounded-2xl flex items-center gap-2 pr-3 border border-white/20 shadow-lg">
                     <img
                       src={user.img}
                       alt="Registered Reference"
-                      className="w-8 h-8 rounded-xl object-cover border border-purple-300"
+                      className="w-9 h-9 rounded-xl object-cover border border-purple-300 shadow-xs"
                     />
                     <div className="text-left">
                       <div className="text-[10px] text-white font-bold flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-purple-300" /> ฐานข้อมูลใบหน้า
                       </div>
-                      <div className="text-[9px] text-purple-200 font-medium">เปรียบเทียบสด</div>
+                      <div className="text-[9px] text-emerald-300 font-medium">ตรวจเฉพาะใบหน้า ไม่จำพื้นหลัง</div>
                     </div>
                   </div>
                 )}
