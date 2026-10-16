@@ -10,10 +10,11 @@ import {
   Smartphone,
   Check,
   Save,
-  UserCheck
+  UserCheck,
+  Bluetooth
 } from 'lucide-react';
 import { SchoolConfig, UserAccount } from '../types';
-import { getOrGenerateDeviceMac, verifyDeviceMac, getDeviceInfoLabel } from '../utils/deviceMac';
+import { getOrGenerateBluetoothMac, verifyBluetoothMac, getDeviceInfoLabel } from '../utils/deviceMac';
 import { Swal } from '../utils/sweetAlert';
 import { verifyFaceForAttendance, FaceVerificationResult } from '../utils/aiFace';
 
@@ -65,9 +66,9 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
   const [scanAttemptCount, setScanAttemptCount] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 1. Device MAC State
-  const currentMac = getOrGenerateDeviceMac();
-  const macCheck = verifyDeviceMac(user.registeredMac, currentMac);
+  // 1. Bluetooth MAC State
+  const currentMac = getOrGenerateBluetoothMac();
+  const macCheck = verifyBluetoothMac(user.registeredMac, currentMac);
 
   // 2. GPS State
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -387,7 +388,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                 ระบบลงเวลาปฏิบัติงาน ({actionType === 'IN' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'})
               </h3>
               <p className="text-xs text-purple-100 font-medium mt-0.5">
-                ตรวจสอบครบ 3 ขั้นตอน: 1. MAC &bull; 2. GPS &bull; 3. สแกนใบหน้า AI
+                ตรวจสอบครบ 3 ขั้นตอน: 1. Bluetooth MAC &bull; 2. GPS &bull; 3. สแกนใบหน้า AI
               </p>
             </div>
           </div>
@@ -548,7 +549,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
               สถานะตรวจสอบ 3 ขั้นตอน
             </div>
 
-            {/* STEP 1: Mac Address */}
+            {/* STEP 1: Bluetooth MAC Address */}
             <div
               className={`p-3 rounded-2xl border transition-all flex items-center justify-between ${
                 isStep1MacPassed
@@ -562,11 +563,11 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                     isStep1MacPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
                   }`}
                 >
-                  <Smartphone className="w-4 h-4" />
+                  <Bluetooth className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="font-bold flex items-center gap-1.5">
-                    <span>1. Mac Address (รหัสอุปกรณ์)</span>
+                    <span>1. Bluetooth MAC Address (รหัสบลูทูธประจำเครื่อง)</span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800">
                       {getDeviceInfoLabel()}
                     </span>
@@ -578,7 +579,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
                       </span>
                     ) : (
                       <span className="text-rose-600 font-medium">
-                        ❌ อุปกรณ์นี้ไม่ตรงกับที่ลงทะเบียนไว้
+                        ❌ อุปกรณ์นี้ไม่ตรงกับที่ลงทะเบียนไว้ (Bluetooth MAC ไม่ตรง)
                       </span>
                     )}
                   </div>

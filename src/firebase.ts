@@ -143,12 +143,56 @@ export async function findUserByUsername(username: string): Promise<UserAccount 
   }
 }
 
+export async function checkBluetoothMacRegistered(
+  macAddress: string,
+  excludeUsername?: string
+): Promise<{ isDuplicate: boolean; existingUser?: { username: string; fullname: string; role: string } }> {
+  if (!macAddress) return { isDuplicate: false };
+  const cleanTarget = macAddress.trim().toUpperCase();
+
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    for (const d of snap.docs) {
+      const data = d.data() as UserAccount;
+      if (excludeUsername && (data.username === excludeUsername || d.id === excludeUsername)) {
+        continue;
+      }
+      const userMac = (data.registeredMac || '').trim().toUpperCase();
+      if (userMac && userMac === cleanTarget) {
+        return {
+          isDuplicate: true,
+          existingUser: {
+            username: data.username || d.id,
+            fullname: data.fullname || data.username || d.id,
+            role: data.role || 'teacher'
+          }
+        };
+      }
+    }
+    return { isDuplicate: false };
+  } catch (err) {
+    console.warn('Error checking Bluetooth MAC duplication:', err);
+    return { isDuplicate: false };
+  }
+}
+
 export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promise<{ ok: boolean; message: string; status?: 'ACTIVE' | 'PENDING' | 'INACTIVE' }> {
   const path = `users/${userData.username}`;
   try {
     const existing = await findUserByUsername(userData.username);
     if (existing) {
       return { ok: false, message: 'ชื่อผู้ใช้งาน (Username) นี้มีอยู่ในระบบแล้ว' };
+    }
+
+    // Check duplicate Bluetooth MAC address
+    if (userData.registeredMac) {
+      const macCheck = await checkBluetoothMacRegistered(userData.registeredMac, userData.username);
+      if (macCheck.isDuplicate) {
+        return {
+          ok: false,
+          message: `อุปกรณ์นี้ (Bluetooth MAC: ${userData.registeredMac}) ได้ลงทะเบียนในระบบแล้ว โดยคุณ "${macCheck.existingUser?.fullname || ''}" (@${macCheck.existingUser?.username || ''}) ไม่อนุญาตให้ลงทะเบียนซ้ำจากเครื่องเดียวกัน`
+        };
+      }
     }
 
     const initialStatus = userData.status || (userData.role === 'admin' ? 'ACTIVE' : 'PENDING');
@@ -164,7 +208,7 @@ export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promis
     await writeSystemLog(
       userData.username,
       'REGISTER',
-      `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} ${statusNote} [MAC: ${userData.registeredMac || 'N/A'}]`
+      `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} ${statusNote} [Bluetooth MAC: ${userData.registeredMac || 'N/A'}]`
     );
 
     const message = initialStatus === 'PENDING'
@@ -242,8 +286,8 @@ export async function resetUserMacAddress(userId: string): Promise<{ ok: boolean
   const path = `users/${userId}`;
   try {
     await updateDoc(doc(db, 'users', userId), { registeredMac: '' });
-    await writeSystemLog('ADMIN', 'RESET_MAC', `รีเซ็ตการผูกอุปกรณ์ MAC Address ของ ${userId}`);
-    return { ok: true, message: 'รีเซ็ต MAC Address สำเร็จ ครูสามารถเข้าสู่ระบบเพื่อจดจำเครื่องใหม่ได้ทันที' };
+    await writeSystemLog('ADMIN', 'RESET_MAC', `รีเซ็ตการผูกอุปกรณ์ Bluetooth MAC Address ของ ${userId}`);
+    return { ok: true, message: 'รีเซ็ต Bluetooth MAC Address สำเร็จ ครูสามารถเข้าสู่ระบบเพื่อจดจำเครื่องใหม่ได้ทันที' };
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }

@@ -24,7 +24,8 @@ import {
   UserCheck,
   Users,
   Settings,
-  FileClock
+  FileClock,
+  Bluetooth
 } from 'lucide-react';
 import { SchoolConfig, UserAccount, AttendanceRecord } from './types';
 import {
@@ -36,7 +37,7 @@ import {
   saveAttendanceRecord,
   DEFAULT_CONFIG
 } from './firebase';
-import { getOrGenerateDeviceMac, getDeviceInfoLabel, verifyDeviceMac } from './utils/deviceMac';
+import { getOrGenerateBluetoothMac, getDeviceInfoLabel, verifyBluetoothMac } from './utils/deviceMac';
 import { Swal } from './utils/sweetAlert';
 import { FaceScannerModal } from './components/FaceScannerModal';
 import { RegisterModal } from './components/RegisterModal';
@@ -86,8 +87,8 @@ export default function App() {
   const currentMonthIso = todayIso.substring(0, 7);
   const [selectedAdminMonth, setSelectedAdminMonth] = useState(currentMonthIso);
 
-  // Device MAC Address
-  const currentDeviceMac = getOrGenerateDeviceMac();
+  // Device Bluetooth MAC Address
+  const currentDeviceMac = getOrGenerateBluetoothMac();
   const deviceLabel = getDeviceInfoLabel();
 
   // Clock runner
@@ -849,13 +850,13 @@ export default function App() {
                       {currentUser.position || 'ครูผู้สอน'} • {currentUser.department || 'ฝ่ายวิชาการ'}
                     </p>
 
-                    {/* Bound Device MAC Info */}
+                    {/* Bound Device Bluetooth MAC Info */}
                     <div className="mt-5 p-3 rounded-2xl bg-purple-50/80 border border-purple-200/80 text-left text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-[#7C3AED] shrink-0" />
+                        <Bluetooth className="w-4 h-4 text-[#7C3AED] shrink-0" />
                         <div>
                           <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                            MAC Address ที่ผูกไว้
+                            Bluetooth MAC ที่ผูกไว้
                           </div>
                           <div className="font-mono font-bold text-purple-900 text-xs">
                             {currentUser.registeredMac || currentDeviceMac}

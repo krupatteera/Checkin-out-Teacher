@@ -12,7 +12,12 @@ import {
   Clock,
   Sparkles,
   Eye,
-  AlertCircle
+  EyeOff,
+  AlertCircle,
+  KeyRound,
+  Copy,
+  Check,
+  Bluetooth
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import {
@@ -42,8 +47,10 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
-  // Preview face & biometrics detail modal
+  // Preview face & credentials detail modal ("โมดูลดู")
   const [selectedUserForDetail, setSelectedUserForDetail] = useState<UserAccount | null>(null);
+  const [showDetailPassword, setShowDetailPassword] = useState<boolean>(true);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -63,6 +70,15 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     }
   }, [isOpen]);
 
+  const copyToClipboard = (text: string, field: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => {
+      setCopiedField(null);
+    }, 2000);
+  };
+
   // Handle Approve User
   const handleApprove = async (u: UserAccount) => {
     const res = await Swal.fire({
@@ -73,6 +89,11 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
           <div class="p-2.5 bg-purple-50 rounded-xl border border-purple-200">
             <p class="font-semibold text-purple-900">ตำแหน่ง: ${u.position || '-'}</p>
             <p class="text-slate-500 text-[11px]">กลุ่มสาระ: ${u.department || '-'}</p>
+            ${
+              u.registeredMac
+                ? `<p class="text-purple-700 text-[11px] mt-1 font-mono font-medium">Bluetooth MAC: ${u.registeredMac}</p>`
+                : ''
+            }
             ${
               u.faceBiometrics
                 ? `<p class="text-emerald-700 text-[11px] mt-1 font-medium">✓ AI Biometric: ผ่านเกณฑ์ (${u.faceBiometrics.confidence}%)</p>`
@@ -130,8 +151,8 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
 
   const handleResetMac = async (u: UserAccount) => {
     const res = await Swal.fire({
-      title: 'รีเซ็ต MAC Address?',
-      html: `ต้องการปลดล็อคอุปกรณ์ของ <b>${u.fullname}</b> (${u.username}) ใช่หรือไม่?<br><span class="text-xs text-slate-500">หลังจากรีเซ็ต ครูสามารถเข้าสู่ระบบจากเครื่องใหม่เพื่อผูกอุปกรณ์ได้ทันที</span>`,
+      title: 'รีเซ็ต Bluetooth MAC Address?',
+      html: `ต้องการปลดล็อคอุปกรณ์บลูทูธของ <b>${u.fullname}</b> (${u.username}) ใช่หรือไม่?<br><span class="text-xs text-slate-500">หลังจากรีเซ็ต ครูสามารถเข้าสู่ระบบจากเครื่องใหม่เพื่อผูก Bluetooth MAC Address ได้ทันที</span>`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonText: 'ยืนยันรีเซ็ต',
@@ -142,8 +163,11 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     if (res.isConfirmed) {
       try {
         await resetUserMacAddress(u.id);
-        Swal.fire('สำเร็จ', 'รีเซ็ต MAC Address สำเร็จแล้ว', 'success');
+        Swal.fire('สำเร็จ', 'รีเซ็ต Bluetooth MAC Address สำเร็จแล้ว', 'success');
         fetchUsers();
+        if (selectedUserForDetail && selectedUserForDetail.id === u.id) {
+          setSelectedUserForDetail({ ...selectedUserForDetail, registeredMac: '' });
+        }
       } catch (err: unknown) {
         Swal.fire('ผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
       }
@@ -164,7 +188,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     if (res.isConfirmed) {
       try {
         await deleteUserAccount(u.id);
-        Swal.fire('ลบสำเร็จ', `ลบผู้ใช้งาน ${u.username} เรียบร้อยแล้ว`, 'success');
+        Swal.fire('สำเร็จ', 'ลบผู้ใช้งานเรียบร้อยแล้ว', 'success');
         fetchUsers();
       } catch (err: unknown) {
         Swal.fire('ผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
@@ -172,47 +196,38 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  // Filter users based on search & status tab
+  const filteredUsers = users.filter((u) => {
+    const matchSearch =
+      u.fullname.toLowerCase().includes(search.toLowerCase()) ||
+      u.username.toLowerCase().includes(search.toLowerCase()) ||
+      (u.department && u.department.toLowerCase().includes(search.toLowerCase())) ||
+      (u.registeredMac && u.registeredMac.toLowerCase().includes(search.toLowerCase()));
 
-  const pendingCount = users.filter((u) => u.status === 'PENDING').length;
-
-  const filtered = users.filter((u) => {
-    const q = search.toLowerCase();
-    const matchQuery =
-      u.fullname.toLowerCase().includes(q) ||
-      u.username.toLowerCase().includes(q) ||
-      (u.department && u.department.toLowerCase().includes(q)) ||
-      (u.position && u.position.toLowerCase().includes(q));
-
-    if (!matchQuery) return false;
+    if (!matchSearch) return false;
 
     if (statusFilter === 'ALL') return true;
     if (statusFilter === 'PENDING') return u.status === 'PENDING';
-    if (statusFilter === 'ACTIVE') return u.status === 'ACTIVE' || (!u.status && u.role === 'admin');
+    if (statusFilter === 'ACTIVE') return u.status === 'ACTIVE' || !u.status;
     if (statusFilter === 'INACTIVE') return u.status === 'INACTIVE';
     return true;
   });
 
+  const pendingCount = users.filter((u) => u.status === 'PENDING').length;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[94vh]">
-        {/* Header with Pastel Purple Theme */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
+            <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-sm">
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg">จัดการรายชื่อครูและบุคลากร</h3>
-                {pendingCount > 0 && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 font-extrabold text-xs animate-bounce shadow-xs">
-                    รออนุมัติ {pendingCount} คน
-                  </span>
-                )}
-              </div>
+              <h3 className="font-bold text-lg">จัดการรายชื่อครูและบุคลากร</h3>
               <p className="text-xs text-purple-100">
-                อนุมัติฐานข้อมูลใบหน้า AI, ตรวจสอบสถานะ, ผูกอุปกรณ์ MAC Address, จัดการสิทธิ์
+                อนุมัติสมาชิกใหม่ • ดู User & Password • ตรวจสอบ Bluetooth MAC & ชีวภาพ AI
               </p>
             </div>
           </div>
@@ -224,23 +239,24 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
           </button>
         </div>
 
-        {/* Toolbar & Status Tabs */}
-        <div className="p-4 bg-slate-50 border-b border-purple-50 flex flex-col md:flex-row items-center justify-between gap-3">
-          {/* Status Filter Tabs */}
-          <div className="flex items-center gap-1.5 bg-white p-1 rounded-2xl border border-purple-100 w-full md:w-auto overflow-x-auto text-xs">
+        {/* Toolbar & Filters */}
+        <div className="p-4 sm:p-6 border-b border-purple-50 flex flex-col sm:flex-row items-center justify-between gap-4 bg-purple-50/30">
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-white rounded-2xl border border-purple-100 shadow-xs w-full sm:w-auto overflow-x-auto">
             <button
               onClick={() => setStatusFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 statusFilter === 'ALL'
                   ? 'bg-[#7C3AED] text-white shadow-xs'
-                  : 'text-slate-600 hover:text-purple-700'
+                  : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50'
               }`}
             >
               ทั้งหมด ({users.length})
             </button>
+
             <button
               onClick={() => setStatusFilter('PENDING')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                 statusFilter === 'PENDING'
                   ? 'bg-amber-500 text-white shadow-xs'
                   : 'text-amber-800 hover:bg-amber-50'
@@ -250,30 +266,32 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
               <span>รออนุมัติ</span>
               {pendingCount > 0 && (
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
-                    statusFilter === 'PENDING' ? 'bg-white text-amber-600' : 'bg-amber-200 text-amber-900'
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    statusFilter === 'PENDING' ? 'bg-white text-amber-700' : 'bg-amber-200 text-amber-900'
                   }`}
                 >
                   {pendingCount}
                 </span>
               )}
             </button>
+
             <button
               onClick={() => setStatusFilter('ACTIVE')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 statusFilter === 'ACTIVE'
-                  ? 'bg-[#7C3AED] text-white shadow-xs'
-                  : 'text-slate-600 hover:text-purple-700'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
               }`}
             >
-              อนุมัติแล้ว ({users.filter((u) => u.status === 'ACTIVE' || (!u.status && u.role === 'admin')).length})
+              ใช้งานได้ ({users.filter((u) => u.status === 'ACTIVE' || !u.status).length})
             </button>
+
             <button
               onClick={() => setStatusFilter('INACTIVE')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 statusFilter === 'INACTIVE'
                   ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-purple-700'
+                  : 'text-slate-600 hover:text-rose-700 hover:bg-rose-50'
               }`}
             >
               ระงับ ({users.filter((u) => u.status === 'INACTIVE').length})
@@ -281,121 +299,106 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
           </div>
 
           {/* Search & Actions */}
-          <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-            <div className="relative w-full md:w-60">
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="ค้นหาชื่อ, ตำแหน่ง..."
+                placeholder="ค้นหาชื่อ, username, Bluetooth MAC..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#8B5CF6] bg-white"
+                className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-purple-100 text-xs focus:outline-none focus:border-[#7C3AED]"
               />
             </div>
 
             <button
               onClick={fetchUsers}
-              disabled={loading}
-              className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-colors cursor-pointer shrink-0"
-              title="โหลดใหม่"
+              className="p-2 bg-white hover:bg-purple-50 text-slate-600 hover:text-[#7C3AED] rounded-xl border border-purple-100 shadow-xs cursor-pointer transition-colors"
+              title="รีเฟรชข้อมูล"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
+
             <button
-              onClick={() => {
-                onClose();
-                onOpenRegister();
-              }}
-              className="px-3 py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-purple-900/15 cursor-pointer shrink-0"
+              onClick={onOpenRegister}
+              className="px-3 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all shrink-0"
             >
-              <UserPlus className="w-3.5 h-3.5" /> เพิ่มครูใหม่
+              <UserPlus className="w-4 h-4" />
+              <span>เพิ่มครูใหม่</span>
             </button>
           </div>
         </div>
 
-        {/* Table Content */}
-        <div className="p-4 overflow-y-auto flex-1">
-          {loading ? (
-            <div className="p-12 text-center text-slate-400">
+        {/* Content Table */}
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+          {loading && users.length === 0 ? (
+            <div className="py-16 text-center text-slate-400">
               <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-[#7C3AED]" />
-              <p className="text-xs font-semibold">กำลังโหลดข้อมูลสมาชิก...</p>
+              <p className="text-xs">กำลังโหลดรายชื่อ...</p>
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="p-12 text-center text-slate-400">
-              <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p className="text-sm font-semibold">ไม่พบข้อมูลสมาชิกในหมวดหมู่นี้</p>
+          ) : filteredUsers.length === 0 ? (
+            <div className="py-16 text-center text-slate-400">
+              <Users className="w-12 h-12 mx-auto mb-2 opacity-30" />
+              <p className="text-sm font-medium">ไม่พบรายชื่อครูและบุคลากร</p>
             </div>
           ) : (
-            <div className="overflow-x-auto border border-purple-50 rounded-2xl shadow-xs">
-              <table className="w-full text-left text-xs text-slate-700">
-                <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
+            <div className="overflow-x-auto rounded-2xl border border-purple-100 shadow-xs">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-purple-50/70 text-slate-600 font-bold border-b border-purple-100 uppercase text-[11px] tracking-wider">
                   <tr>
                     <th className="px-4 py-3">ครู / บุคลากร</th>
-                    <th className="px-4 py-3">ฐานข้อมูลใบหน้า (AI)</th>
+                    <th className="px-4 py-3">ภาพใบหน้า AI</th>
                     <th className="px-4 py-3">ตำแหน่ง / สาระ</th>
-                    <th className="px-4 py-3">สถานะบัญชี</th>
-                    <th className="px-4 py-3">MAC Address</th>
-                    <th className="px-4 py-3 text-right">การจัดการ & อนุมัติ</th>
+                    <th className="px-4 py-3">สถานะ</th>
+                    <th className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Bluetooth className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Bluetooth MAC</span>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-right">การจัดการ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filtered.map((u) => {
+                <tbody className="divide-y divide-purple-50">
+                  {filteredUsers.map((u) => {
                     const isPending = u.status === 'PENDING';
+
                     return (
                       <tr
                         key={u.id}
-                        className={`transition-colors ${
-                          isPending ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-purple-50/30'
+                        className={`hover:bg-purple-50/40 transition-colors ${
+                          isPending ? 'bg-amber-50/30' : ''
                         }`}
                       >
-                        {/* User Profile */}
+                        {/* Name & Username */}
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="relative group cursor-pointer" onClick={() => setSelectedUserForDetail(u)}>
-                              <img
-                                src={
-                                  u.img ||
-                                  `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                    u.fullname
-                                  )}&background=8B5CF6&color=fff`
-                                }
-                                alt={u.fullname}
-                                className={`w-10 h-10 rounded-full object-cover border-2 shrink-0 ${
-                                  isPending ? 'border-amber-400 shadow-sm' : 'border-purple-200'
-                                }`}
-                              />
-                              <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
-                                <Eye className="w-4 h-4" />
-                              </div>
-                            </div>
-                            <div>
-                              <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                                <span>{u.fullname}</span>
-                                {u.role === 'admin' && (
-                                  <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.2 rounded font-bold">
-                                    Admin
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-400 font-mono">@{u.username}</div>
-                            </div>
-                          </div>
+                          <div className="font-bold text-slate-900">{u.fullname}</div>
+                          <div className="text-[11px] text-purple-700 font-mono">@{u.username}</div>
+                          {u.phone && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">โทร: {u.phone}</div>
+                          )}
                         </td>
 
-                        {/* AI Face Biometrics Badge */}
+                        {/* Face Snapshot & Biometrics badge */}
                         <td className="px-4 py-3">
-                          {u.faceBiometrics ? (
-                            <button
-                              onClick={() => setSelectedUserForDetail(u)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7C3AED] font-semibold text-[11px] border border-purple-200 transition-colors cursor-pointer text-left"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-[#7C3AED]" />
-                              <span>AI ตรวจแล้ว ({u.faceBiometrics.confidence}%)</span>
-                            </button>
-                          ) : u.img ? (
-                            <span className="text-slate-500 text-[11px] flex items-center gap-1">
-                              <span>มีภาพใบหน้า</span>
-                            </span>
+                          {u.img ? (
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={u.img}
+                                alt={u.fullname}
+                                className="w-10 h-10 rounded-xl object-cover border border-purple-200 shadow-xs"
+                              />
+                              {u.faceBiometrics && (
+                                <div>
+                                  <div className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" /> {u.faceBiometrics.confidence}%
+                                  </div>
+                                  <div className="text-[9px] text-slate-400">
+                                    {u.faceBiometrics.quality}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-slate-400 italic text-[11px]">ไม่มีภาพ</span>
                           )}
@@ -427,11 +430,11 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                           )}
                         </td>
 
-                        {/* MAC Address */}
+                        {/* Bluetooth MAC Address */}
                         <td className="px-4 py-3">
                           {u.registeredMac ? (
-                            <div className="flex items-center gap-1 font-mono text-[11px] text-purple-900 bg-purple-50 px-2 py-0.5 rounded-lg w-fit border border-purple-200">
-                              <ShieldCheck className="w-3 h-3 text-purple-600" />
+                            <div className="flex items-center gap-1 font-mono text-[11px] text-purple-900 bg-purple-50 px-2.5 py-1 rounded-lg w-fit border border-purple-200">
+                              <Bluetooth className="w-3.5 h-3.5 text-purple-600" />
                               <span>{u.registeredMac}</span>
                             </div>
                           ) : (
@@ -442,7 +445,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                         {/* Action Buttons */}
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            {/* APPROVE BUTTON (Visible for Pending or Inactive) */}
+                            {/* APPROVE BUTTON (Visible for Pending) */}
                             {isPending && (
                               <button
                                 onClick={() => handleApprove(u)}
@@ -463,22 +466,26 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                               </button>
                             )}
 
-                            {/* View Detail button */}
+                            {/* View Detail button ("โมดูลดู" แสดง User & Password) */}
                             <button
-                              onClick={() => setSelectedUserForDetail(u)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:bg-purple-100 hover:text-purple-700 transition-colors cursor-pointer"
-                              title="ดูรายละเอียดและข้อมูลใบหน้า AI"
+                              onClick={() => {
+                                setSelectedUserForDetail(u);
+                                setShowDetailPassword(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white font-bold text-xs flex items-center gap-1 border border-purple-200 transition-colors cursor-pointer"
+                              title="ดู User, Password และรายละเอียดชีวภาพ AI"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>ดูข้อมูล</span>
                             </button>
 
-                            {/* Reset MAC */}
+                            {/* Reset Bluetooth MAC */}
                             <button
                               onClick={() => handleResetMac(u)}
                               className="p-1.5 rounded-lg text-purple-700 hover:bg-purple-100 transition-colors cursor-pointer"
-                              title="รีเซ็ต MAC Address ให้ผูกเครื่องใหม่"
+                              title="รีเซ็ต Bluetooth MAC Address ให้ผูกเครื่องใหม่"
                             >
-                              <Smartphone className="w-4 h-4" />
+                              <Bluetooth className="w-4 h-4" />
                             </button>
 
                             {/* Reject / Delete */}
@@ -510,24 +517,28 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
           )}
         </div>
 
-        {/* Modal Detail for User Face & AI Biometrics */}
+        {/* ======================================================== */}
+        {/* โมดูลดู: แสดงข้อมูลครู พร้อม USER และ PASSWORD            */}
+        {/* ======================================================== */}
         {selectedUserForDetail && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xs animate-fadeIn">
-            <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-200 p-6">
-              <div className="flex items-center justify-between pb-3 border-b border-purple-50">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-xs animate-fadeIn">
+            <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-200 p-5 sm:p-6 max-h-[92vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-purple-100">
                 <h4 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#7C3AED]" /> ข้อมูลใบหน้าและชีวภาพ AI
+                  <Eye className="w-5 h-5 text-[#7C3AED]" /> ข้อมูลผู้ใช้งานและรหัสผ่าน (User & Password)
                 </h4>
                 <button
                   onClick={() => setSelectedUserForDetail(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
+              {/* Profile Card Summary */}
               <div className="mt-4 flex flex-col items-center">
-                <div className="relative w-40 h-40 rounded-2xl overflow-hidden border-2 border-purple-300 shadow-md mb-3">
+                <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-2xl overflow-hidden border-2 border-purple-300 shadow-md mb-2 bg-purple-50">
                   <img
                     src={
                       selectedUserForDetail.img ||
@@ -540,32 +551,182 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                   />
                 </div>
 
-                <h5 className="font-bold text-slate-900 text-base">{selectedUserForDetail.fullname}</h5>
-                <p className="text-xs text-slate-500 font-mono">@{selectedUserForDetail.username}</p>
+                <h5 className="font-bold text-slate-900 text-lg text-center">
+                  {selectedUserForDetail.fullname}
+                </h5>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-purple-700 font-medium">
+                    {selectedUserForDetail.position || 'ครูผู้สอน'}
+                  </span>
+                  <span className="text-slate-300">&bull;</span>
+                  <span className="text-xs text-slate-500">
+                    {selectedUserForDetail.department || 'ไม่ระบุกลุ่มสาระ'}
+                  </span>
+                </div>
 
-                {/* Biometrics Card */}
-                <div className="w-full mt-4 p-3 bg-purple-50/70 rounded-2xl border border-purple-200 text-xs space-y-1.5 text-slate-700">
-                  <div className="flex items-center justify-between font-bold text-[#7C3AED]">
-                    <span>ผลการวิเคราะห์ AI Biometric</span>
-                    <span className="text-[10px] bg-purple-200 text-purple-900 px-2 py-0.5 rounded-full">
-                      {selectedUserForDetail.faceBiometrics?.quality || 'GOOD'}
+                {/* Status Badge */}
+                <div className="mt-2">
+                  {selectedUserForDetail.status === 'PENDING' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" /> รออนุมัติการใช้งาน (Pending)
+                    </span>
+                  ) : selectedUserForDetail.status === 'INACTIVE' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold text-xs bg-rose-100 text-rose-700 border border-rose-200">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> ระงับการใช้งาน
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> อนุมัติใช้งานแล้ว (Active)
+                    </span>
+                  )}
+                </div>
+
+                {/* ======================================================== */}
+                {/* DEDICATED USER & PASSWORD CREDENTIALS BOX                */}
+                {/* ======================================================== */}
+                <div className="w-full mt-4 p-4 bg-gradient-to-br from-purple-50 via-indigo-50/50 to-purple-50 rounded-2xl border-2 border-purple-200 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-[#7C3AED] pb-1.5 border-b border-purple-200/70">
+                    <span className="flex items-center gap-1.5">
+                      <KeyRound className="w-4 h-4 text-[#7C3AED]" /> ข้อมูลการเข้าสู่ระบบ (Credentials)
+                    </span>
+                    <span className="text-[10px] font-normal text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">
+                      สำหรับผู้ดูแลระบบ
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    {selectedUserForDetail.faceBiometrics?.aiSummary ||
-                      selectedUserForDetail.faceBiometrics?.descriptor ||
-                      'ตรวจพบโครงสร้างใบหน้าสำหรับใช้ในการสแกนลงเวลา'}
-                  </p>
-                  <div className="text-[10px] text-slate-400 pt-1">
-                    คะแนนความมั่นใจ AI:{' '}
-                    <b className="text-purple-700 font-bold">
-                      {selectedUserForDetail.faceBiometrics?.confidence || 90}%
-                    </b>
+
+                  {/* USERNAME (User) */}
+                  <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Username (ชื่อผู้ใช้)
+                      </span>
+                      <span className="font-mono font-bold text-base text-purple-950">
+                        {selectedUserForDetail.username}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(selectedUserForDetail.username, 'user')}
+                      className="px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg border border-purple-200 flex items-center gap-1 cursor-pointer transition-colors"
+                      title="คัดลอก Username"
+                    >
+                      {copiedField === 'user' ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-700">คัดลอกแล้ว</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-purple-600" />
+                          <span>คัดลอก</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* PASSWORD */}
+                  <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Password (รหัสผ่าน)
+                      </span>
+                      <span className="font-mono font-bold text-base text-slate-900 tracking-wide">
+                        {showDetailPassword
+                          ? selectedUserForDetail.password || '(ไม่มีข้อมูลรหัสผ่าน)'
+                          : '••••••••••••'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowDetailPassword(!showDetailPassword)}
+                        className="p-1.5 text-slate-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors"
+                        title={showDetailPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                      >
+                        {showDetailPassword ? (
+                          <EyeOff className="w-4 h-4 text-purple-700" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-slate-400" />
+                        )}
+                      </button>
+
+                      {selectedUserForDetail.password && (
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(selectedUserForDetail.password!, 'pass')}
+                          className="px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg border border-purple-200 flex items-center gap-1 cursor-pointer transition-colors"
+                          title="คัดลอกรหัสผ่าน"
+                        >
+                          {copiedField === 'pass' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-emerald-700">คัดลอกแล้ว</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-purple-600" />
+                              <span>คัดลอก</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Action button in detail modal */}
-                <div className="w-full mt-5 flex items-center gap-2">
+                {/* Bluetooth Device MAC Address Card */}
+                <div className="w-full mt-3 p-3 bg-purple-50/60 rounded-2xl border border-purple-200 text-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-purple-100 rounded-xl text-purple-700">
+                      <Bluetooth className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <span>Bluetooth MAC Address</span>
+                        {selectedUserForDetail.registeredMac && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-md font-bold">
+                            ผูกเครื่องแล้ว
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-purple-900 text-xs font-semibold mt-0.5">
+                        {selectedUserForDetail.registeredMac || 'ยังไม่ได้ผูกอุปกรณ์บลูทูธ'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedUserForDetail.registeredMac && (
+                    <button
+                      type="button"
+                      onClick={() => handleResetMac(selectedUserForDetail)}
+                      className="px-2.5 py-1 text-xs font-bold text-purple-700 hover:bg-purple-100 rounded-xl border border-purple-200 cursor-pointer transition-colors"
+                      title="รีเซ็ต Bluetooth MAC ให้ผูกเครื่องใหม่"
+                    >
+                      รีเซ็ตเครื่อง
+                    </button>
+                  )}
+                </div>
+
+                {/* AI Biometrics Card */}
+                {selectedUserForDetail.faceBiometrics && (
+                  <div className="w-full mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1 text-slate-700">
+                    <div className="flex items-center justify-between font-bold text-[#7C3AED]">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" /> ฐานข้อมูลชีวภาพใบหน้า AI
+                      </span>
+                      <span className="text-[10px] bg-purple-100 text-purple-900 px-2 py-0.5 rounded-full">
+                        ความมั่นใจ {selectedUserForDetail.faceBiometrics.confidence}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed pt-0.5">
+                      {selectedUserForDetail.faceBiometrics.aiSummary ||
+                        selectedUserForDetail.faceBiometrics.descriptor}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action buttons in detail modal */}
+                <div className="w-full mt-4 flex items-center gap-2">
                   {selectedUserForDetail.status === 'PENDING' && (
                     <button
                       onClick={() => {
@@ -573,14 +734,15 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                         setSelectedUserForDetail(null);
                         handleApprove(target);
                       }}
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                     >
-                      <CheckCircle2 className="w-4 h-4" /> อนุมัติการใช้งาน
+                      <CheckCircle2 className="w-4 h-4" /> ยืนยันอนุมัติการใช้งาน
                     </button>
                   )}
+
                   <button
                     onClick={() => setSelectedUserForDetail(null)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                    className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer text-center"
                   >
                     ปิดหน้าต่าง
                   </button>
