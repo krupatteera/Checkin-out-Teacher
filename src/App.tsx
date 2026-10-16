@@ -91,12 +91,12 @@ export default function App() {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
 
-  // Face Login (Camera & Upload) state for teachers
-  const [faceLoginMode, setFaceLoginMode] = useState<'camera' | 'upload'>('camera');
-  const [faceLoginScanning, setFaceLoginScanning] = useState(false);
+  // Face Login (Live Camera AI) state for teachers - No photo upload
+  const [faceOvalStatus, setFaceOvalStatus] = useState<'idle' | 'scanning' | 'matched' | 'unmatched'>('idle');
   const [faceLoginStatusText, setFaceLoginStatusText] = useState('จัดใบหน้าให้อยู่ในกรอบวงรีเพื่อเข้าสู่ระบบ');
   const [faceLoginCameraActive, setFaceLoginCameraActive] = useState(false);
   const [faceLoginCameraError, setFaceLoginCameraError] = useState<string | null>(null);
+  const isScanningRef = useRef(false);
   const loginVideoRef = useRef<HTMLVideoElement>(null);
   const loginStreamRef = useRef<MediaStream | null>(null);
 
@@ -259,7 +259,7 @@ export default function App() {
   };
 
   // --------------------------------------------------------------------------
-  // CAMERA LOGIC FOR TEACHER FACE LOGIN
+  // CAMERA & CONTINUOUS AI FACE LOGIN LOGIC (NO PHOTO UPLOAD)
   // --------------------------------------------------------------------------
   const stopLoginCamera = () => {
     if (loginStreamRef.current) {
@@ -286,15 +286,17 @@ export default function App() {
         loginVideoRef.current.srcObject = stream;
       }
       setFaceLoginCameraActive(true);
+      setFaceOvalStatus('idle');
+      setFaceLoginStatusText('จัดใบหน้าให้อยู่ในกรอบวงรีเพื่อเข้าสู่ระบบ');
     } catch (err) {
       console.error('Camera access error:', err);
-      setFaceLoginCameraError('ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการเข้าถึงหรือเลือกอัปโหลดรูป');
+      setFaceLoginCameraError('ไม่สามารถเข้าถึงกล้องหน้าได้ กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์เพื่อเข้าสู่ระบบ');
       setFaceLoginCameraActive(false);
     }
   };
 
   useEffect(() => {
-    if (!currentUser && faceLoginMode === 'camera' && !registerModalOpen && !adminPinModalOpen) {
+    if (!currentUser && !registerModalOpen && !adminPinModalOpen) {
       startLoginCamera();
     } else {
       stopLoginCamera();
@@ -302,19 +304,27 @@ export default function App() {
     return () => {
       stopLoginCamera();
     };
-  }, [currentUser, faceLoginMode, registerModalOpen, adminPinModalOpen]);
+  }, [currentUser, registerModalOpen, adminPinModalOpen]);
 
-  // Handle Teacher Face Scan Login
-  const handlePerformFaceLogin = async (rawImageStr?: string) => {
-    let imageToAnalyze = rawImageStr;
+  // Teacher AI Face Verification
+  // If matched -> oval turns GREEN and automatically enters system!
+  // If unmatched -> oval turns RED and prompts to move camera until green!
+  const handlePerformFaceLogin = async (isManualClick = false) => {
+    if (isScanningRef.current || faceOvalStatus === 'matched') return;
 
-    if (!imageToAnalyze) {
-      const video = loginVideoRef.current;
-      if (!video) {
-        Swal.fire('กล้องยังไม่พร้อม', 'กรุณารอสักครู่ให้กล้องเปิดทำงาน หรือเลือกอัปโหลดรูปภาพ', 'warning');
-        return;
+    const video = loginVideoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+      if (isManualClick) {
+        setFaceLoginStatusText('กรุณารอสักครู่ให้กล้องเปิดทำงานให้พร้อม...');
       }
+      return;
+    }
 
+    isScanningRef.current = true;
+    setFaceOvalStatus('scanning');
+    setFaceLoginStatusText('AI กำลังวิเคราะห์โครงหน้าชีวภาพและตรวจสอบกับฐานข้อมูล...');
+
+    try {
       const vw = video.videoWidth || 480;
       const vh = video.videoHeight || 480;
       const cropSize = Math.min(vw, vh);
@@ -322,45 +332,50 @@ export default function App() {
       const sy = (vh - cropSize) / 2;
 
       const canvas = document.createElement('canvas');
-      canvas.width = 480;
-      canvas.height = 480;
+      canvas.width = 440;
+      canvas.height = 440;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) {
+        isScanningRef.current = false;
+        setFaceOvalStatus('idle');
+        return;
+      }
 
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
-      imageToAnalyze = canvas.toDataURL('image/jpeg', 0.85);
-    }
+      const imageToAnalyze = canvas.toDataURL('image/jpeg', 0.85);
 
-    setFaceLoginScanning(true);
-    setFaceLoginStatusText('AI กำลังวิเคราะห์โครงสร้างใบหน้าและค้นหารายชื่อ...');
-
-    try {
-      const compressed = await compressImageBase64(imageToAnalyze, 440, 440, 0.82);
       const allUsers = await getAllUsersList();
       const teacherCandidates = allUsers.filter((u) => u.role !== 'admin' && Boolean(u.img));
 
       if (teacherCandidates.length === 0) {
-        setFaceLoginScanning(false);
-        setFaceLoginStatusText('ยังไม่มีฐานข้อมูลครูในระบบ กรุณาลงทะเบียนก่อน');
-        Swal.fire({
-          title: 'ยังไม่มีฐานข้อมูลครู',
-          text: 'ยังไม่พบรายชื่อครูในระบบ กรุณากดปุ่ม "เมนูลงทะเบียน" เพื่อลงทะเบียนใบหน้าแรกของท่าน',
-          icon: 'info',
-          confirmButtonColor: '#7C3AED'
-        });
+        setFaceOvalStatus('unmatched');
+        setFaceLoginStatusText('ยังไม่มีฐานข้อมูลครูในระบบ กรุณากด "เมนูลงทะเบียน" ด้านล่าง');
+        if (isManualClick) {
+          Swal.fire({
+            title: 'ยังไม่มีฐานข้อมูลครู',
+            text: 'ยังไม่พบรายชื่อครูในระบบ กรุณากดปุ่ม "เมนูลงทะเบียน" เพื่อลงทะเบียนใบหน้าแรกของท่าน',
+            icon: 'info',
+            confirmButtonColor: '#7C3AED'
+          });
+        }
+        isScanningRef.current = false;
         return;
       }
 
-      const matchResult = await identifyUserByFace(compressed, teacherCandidates);
-      setFaceLoginScanning(false);
+      const matchResult = await identifyUserByFace(imageToAnalyze, teacherCandidates);
 
       if (matchResult.matchedUser) {
         const foundUser = matchResult.matchedUser;
 
+        // 1. MATCHED: OVAL TURNS GREEN!
+        setFaceOvalStatus('matched');
+        setFaceLoginStatusText(`✓ ตรวจสอบผ่าน! ใบหน้าตรงกับ คุณ ${foundUser.fullname} กำลังเข้าระบบอัตโนมัติ...`);
+
         // Check user approval status
         if (foundUser.status === 'PENDING') {
+          isScanningRef.current = false;
           Swal.fire({
             title: 'รอการอนุมัติจากผู้ดูแลระบบ',
             html: `
@@ -370,7 +385,7 @@ export default function App() {
                     <span>⏳ บัญชีอยู่ระหว่างรอผู้ดูแลระบบอนุมัติ</span>
                   </p>
                   <p class="mt-1 text-[11px] leading-relaxed">
-                    พบใบหน้าของคุณ: <b>${foundUser.fullname}</b><br>
+                    ตรวจพบใบหน้าของคุณ: <b>${foundUser.fullname}</b><br>
                     ขณะนี้บัญชียังอยู่ในสถานะรอผู้ดูแลระบบตรวจสอบ กรุณาแจ้งผู้ดูแลระบบเพื่ออนุมัติการใช้งานก่อนเข้าสู่ระบบ
                   </p>
                 </div>
@@ -384,6 +399,7 @@ export default function App() {
         }
 
         if (foundUser.status === 'INACTIVE') {
+          isScanningRef.current = false;
           Swal.fire('บัญชีถูกระงับ', 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ', 'warning');
           return;
         }
@@ -392,22 +408,11 @@ export default function App() {
         if (!foundUser.registeredMac) {
           foundUser.registeredMac = currentDeviceMac;
         } else if (foundUser.registeredMac !== currentDeviceMac) {
-          // Warning if device changed
-          const confirmChange = await Swal.fire({
-            title: 'พบอุปกรณ์ใหม่ (Bluetooth MAC ต่างกัน)',
-            html: `
-              <div class="text-left text-xs text-slate-600 space-y-1.5">
-                <p>บัญชีของคุณผูกไว้กับอุปกรณ์: <span class="font-mono text-purple-900">${foundUser.registeredMac}</span></p>
-                <p>อุปกรณ์ปัจจุบันคือ: <span class="font-mono text-purple-900">${currentDeviceMac}</span> (${deviceLabel})</p>
-                <p class="text-amber-800 font-semibold pt-1">* หากท่านเปลี่ยนอุปกรณ์ใหม่ กรุณาติดต่อผู้ดูแลระบบเพื่อรีเซ็ต Bluetooth MAC ก่อน</p>
-              </div>
-            `,
-            icon: 'warning',
-            confirmButtonColor: '#7C3AED',
-            confirmButtonText: 'รับทราบ'
-          });
-          // Allow login or proceed
+          console.warn('Device MAC differs from registered MAC, proceeding with Face ID verification.');
         }
+
+        // Brief delay so teacher clearly sees the green oval transition!
+        await new Promise((resolve) => setTimeout(resolve, 650));
 
         stopLoginCamera();
         setCurrentUser(foundUser);
@@ -418,57 +423,52 @@ export default function App() {
           html: `
             <div class="text-center text-xs text-slate-600 space-y-2">
               <p class="font-bold text-slate-800 text-sm">ยินดีต้อนรับ คุณ ${foundUser.fullname}</p>
-              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] font-bold text-xs border border-purple-200">
-                <Sparkles className="w-3.5 h-3.5" /> AI Face Verified (${matchResult.confidenceScore}%)
+              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" /> AI Face Verified (${matchResult.confidenceScore}%)
               </div>
             </div>
           `,
           icon: 'success',
-          timer: 1600,
+          timer: 1500,
           showConfirmButton: false
         });
 
         fetchUserAttendance(foundUser.id);
         setCurrentTab('home');
       } else {
-        setFaceLoginStatusText('ไม่พบใบหน้าที่ตรงกับฐานข้อมูล กรุณาจัดใบหน้าให้อยู่ตรงกลาง');
-        Swal.fire({
-          title: 'ไม่พบใบหน้าในระบบ',
-          html: `
-            <div class="text-left text-xs text-slate-600 space-y-2">
-              <p>ระบบ AI ไม่สามารถจับคู่ใบหน้าของท่านกับฐานข้อมูลครูที่มีอยู่ได้</p>
-              <p class="text-[11px] text-slate-500">
-                คำแนะนำ:<br>
-                1. ตรวจสอบให้แน่ใจว่าแสงสว่างเพียงพอและใบหน้าไม่ย้อนแสง<br>
-                2. จัดใบหน้าให้อยู่ในกรอบวงรีและมองตรง<br>
-                3. หากยังไม่เคยลงทะเบียน กรุณากดปุ่ม <b>"เมนูลงทะเบียน"</b>
-              </p>
-            </div>
-          `,
-          icon: 'warning',
-          confirmButtonColor: '#7C3AED'
-        });
+        // 2. NOT MATCHED: OVAL TURNS RED!
+        // No blocking modal popup so the user can continuously adjust camera!
+        setFaceOvalStatus('unmatched');
+        setFaceLoginStatusText('⚠️ ภาพไม่ตรงกับที่ลงทะเบียน กรุณาขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว');
       }
     } catch (err) {
-      console.error('Face login error:', err);
-      setFaceLoginScanning(false);
-      setFaceLoginStatusText('เกิดข้อผิดพลาดในการตรวจสอบใบหน้า');
-      Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถวิเคราะห์ใบหน้าได้ กรุณาลองใหม่อีกครั้ง', 'error');
+      console.error('Face verification error:', err);
+      setFaceOvalStatus('unmatched');
+      setFaceLoginStatusText('⚠️ กำลังค้นหาใบหน้า... กรุณาขยับกล้องเรื่อยๆ ให้อยู่ตรงกลาง');
+    } finally {
+      isScanningRef.current = false;
     }
   };
 
-  // Upload face image for login
-  const handleLoginImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const raw = event.target?.result as string;
-        await handlePerformFaceLogin(raw);
-      };
-      reader.readAsDataURL(file);
+  // Continuous Auto-Scan Loop: Every 2 seconds while camera is streaming and not yet logged in
+  useEffect(() => {
+    if (currentUser || registerModalOpen || adminPinModalOpen || !faceLoginCameraActive) {
+      return;
     }
-  };
+
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      if (!isMounted || isScanningRef.current || faceOvalStatus === 'matched') {
+        return;
+      }
+      await handlePerformFaceLogin(false);
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentUser, registerModalOpen, adminPinModalOpen, faceLoginCameraActive, faceOvalStatus]);
 
   // Logout handler
   const handleLogout = async () => {
@@ -831,139 +831,157 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right Column: AI Face Login Screen (No User/Pass!) */}
+            {/* Right Column: AI Face Login Screen (No User/Pass! Live Camera Only!) */}
             <div className="md:col-span-7 p-6 sm:p-10 flex flex-col justify-center">
-              <div className="mb-5 text-center sm:text-left">
+              <div className="mb-4 text-center sm:text-left">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold mb-2 border border-purple-200">
-                  <Sparkles className="w-3.5 h-3.5" /> ระบบล็อกอินด้วยการสแกนใบหน้า AI
+                  <Sparkles className="w-3.5 h-3.5" /> ระบบล็อกอินด้วยการสแกนใบหน้า AI อัตโนมัติ
                 </div>
                 <h2 className="text-2xl font-extrabold text-slate-800">เข้าสู่ระบบสำหรับครู</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  หันหน้าตรงเข้าหากล้องและกดปุ่มสแกน เพื่อยืนยันตัวตนเข้าใช้งานอัตโนมัติ
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  หันหน้าตรงเข้าหากล้อง ระบบ AI จะสแกนอัตโนมัติ เมื่อวงรีเป็น<b>สีเขียว</b>จะเข้าระบบทันที (หากขึ้น<b>สีแดง</b>ให้ขยับกล้องเรื่อยๆ จนกว่าจะขึ้นสีเขียว)
                 </p>
               </div>
 
-              {/* Camera / Upload Mode Selector */}
-              <div className="flex items-center justify-end gap-1 mb-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFaceLoginMode('camera');
-                    startLoginCamera();
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    faceLoginMode === 'camera'
-                      ? 'bg-[#7C3AED] text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-purple-700 bg-purple-50'
-                  }`}
-                >
-                  เปิดกล้องหน้า
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFaceLoginMode('upload');
-                    stopLoginCamera();
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    faceLoginMode === 'upload'
-                      ? 'bg-[#7C3AED] text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-purple-700 bg-purple-50'
-                  }`}
-                >
-                  อัปโหลดรูป
-                </button>
+              {/* Live Status Header */}
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-[#7C3AED]" /> กล้องหน้าสด (AI Live Recognition)
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                  สแกนอัตโนมัติ
+                </span>
               </div>
 
-              {/* Face Scanner Viewport */}
-              <div className="relative w-full aspect-square max-w-[280px] sm:max-w-[300px] mx-auto rounded-3xl overflow-hidden bg-slate-900 border-4 border-purple-200 shadow-xl flex items-center justify-center">
-                {faceLoginMode === 'camera' ? (
-                  faceLoginCameraError ? (
-                    <div className="p-4 text-center text-white">
-                      <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-2" />
-                      <p className="text-xs font-medium mb-3">{faceLoginCameraError}</p>
-                      <button
-                        type="button"
-                        onClick={startLoginCamera}
-                        className="px-3.5 py-1.5 bg-[#7C3AED] text-white rounded-xl text-xs font-bold cursor-pointer"
-                      >
-                        ลองใหม่อีกครั้ง
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <video
-                        ref={loginVideoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover scale-x-[-1]"
-                      />
+              {/* Face Scanner Viewport with Dynamic Green / Red Border */}
+              <div
+                className={`relative w-full aspect-square max-w-[280px] sm:max-w-[310px] mx-auto rounded-3xl overflow-hidden bg-slate-900 border-4 shadow-xl flex items-center justify-center transition-all duration-300 ${
+                  faceOvalStatus === 'matched'
+                    ? 'border-emerald-500 ring-4 ring-emerald-300 shadow-emerald-500/30'
+                    : faceOvalStatus === 'unmatched'
+                    ? 'border-rose-500 ring-4 ring-rose-300 shadow-rose-500/30'
+                    : faceOvalStatus === 'scanning'
+                    ? 'border-purple-400 ring-2 ring-purple-300 shadow-purple-500/20'
+                    : 'border-purple-200'
+                }`}
+              >
+                {faceLoginCameraError ? (
+                  <div className="p-4 text-center text-white">
+                    <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-2" />
+                    <p className="text-xs font-medium mb-3">{faceLoginCameraError}</p>
+                    <button
+                      type="button"
+                      onClick={startLoginCamera}
+                      className="px-3.5 py-1.5 bg-[#7C3AED] text-white rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      เปิดกล้องใหม่อีกครั้ง
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <video
+                      ref={loginVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover scale-x-[-1]"
+                    />
 
-                      {/* Oval Alignment Guide */}
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="w-44 h-56 border-2 border-dashed border-[#A78BFA] rounded-[50%] shadow-[0_0_15px_rgba(167,139,250,0.5)] flex items-center justify-center">
-                          <span className="text-[10px] text-purple-200 font-medium px-2 py-0.5 bg-black/40 rounded-full backdrop-blur-xs">
+                    {/* Central Oval Alignment Guide: Green when matched, Red when unmatched, pulsing while adjusting */}
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                      <div
+                        className={`w-44 sm:w-48 h-60 sm:h-64 rounded-[50%] flex flex-col items-center justify-center transition-all duration-300 relative ${
+                          faceOvalStatus === 'matched'
+                            ? 'border-4 border-emerald-400 bg-emerald-500/20 shadow-[0_0_35px_rgba(52,211,153,0.9)] scale-105'
+                            : faceOvalStatus === 'unmatched'
+                            ? 'border-4 border-rose-500 bg-rose-500/20 shadow-[0_0_35px_rgba(244,63,94,0.9)] animate-pulse'
+                            : faceOvalStatus === 'scanning'
+                            ? 'border-3 border-[#8B5CF6] bg-[#7C3AED]/15 shadow-[0_0_20px_rgba(139,92,246,0.6)]'
+                            : 'border-2 border-dashed border-[#A78BFA] bg-black/20 shadow-[0_0_15px_rgba(167,139,250,0.4)]'
+                        }`}
+                      >
+                        {/* Status feedback badge inside oval */}
+                        {faceOvalStatus === 'matched' ? (
+                          <div className="flex flex-col items-center animate-bounce">
+                            <CheckCircle2 className="w-12 h-12 text-emerald-300 drop-shadow-md mb-1" />
+                            <span className="text-[11px] font-bold text-white px-3 py-1 bg-emerald-600 rounded-full shadow-lg">
+                              ✓ ผ่าน (กำลังเข้าระบบ)
+                            </span>
+                          </div>
+                        ) : faceOvalStatus === 'unmatched' ? (
+                          <div className="flex flex-col items-center">
+                            <AlertCircle className="w-9 h-9 text-rose-300 drop-shadow-md mb-1" />
+                            <span className="text-[10px] font-bold text-white px-2.5 py-0.5 bg-rose-600/95 rounded-full shadow-lg text-center leading-tight">
+                              ภาพไม่ตรงกัน<br />ขยับกล้องเรื่อยๆ
+                            </span>
+                          </div>
+                        ) : faceOvalStatus === 'scanning' ? (
+                          <div className="flex flex-col items-center">
+                            <Loader2 className="w-8 h-8 text-purple-200 animate-spin mb-1" />
+                            <span className="text-[10px] font-medium text-white px-2.5 py-0.5 bg-purple-900/70 rounded-full">
+                              AI กำลังตรวจสอบ...
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-purple-200 font-medium px-2.5 py-1 bg-black/50 rounded-full backdrop-blur-xs">
                             จัดใบหน้าในกรอบวงรี
                           </span>
-                        </div>
+                        )}
                       </div>
-                    </>
-                  )
-                ) : (
-                  /* Upload Mode */
-                  <div className="p-6 text-center text-white flex flex-col items-center justify-center">
-                    <Upload className="w-12 h-12 text-purple-300 mx-auto mb-3" />
-                    <p className="text-xs font-medium text-purple-100 mb-3">
-                      เลือกไฟล์รูปถ่ายหน้าตรงเพื่อล็อกอิน
-                    </p>
-                    <label className="px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-2 shadow-md">
-                      <Upload className="w-4 h-4" />
-                      <span>เลือกไฟล์ภาพ</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLoginImageUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
 
-              {/* Status Hint */}
-              <div className="mt-3 text-center">
-                {faceLoginScanning ? (
-                  <div className="inline-flex items-center gap-2 text-xs font-bold text-[#7C3AED]">
-                    <Loader2 className="w-4 h-4 animate-spin" />
+              {/* Status Hint with Dynamic Colors */}
+              <div className="mt-3.5 text-center px-1">
+                {faceOvalStatus === 'matched' ? (
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-300 shadow-sm animate-pulse">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{faceLoginStatusText}</span>
+                  </div>
+                ) : faceOvalStatus === 'unmatched' ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-rose-50 text-rose-700 text-xs font-bold border border-rose-300 shadow-sm">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{faceLoginStatusText}</span>
+                  </div>
+                ) : faceOvalStatus === 'scanning' ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-purple-50 text-[#7C3AED] text-xs font-bold border border-purple-200">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#7C3AED] shrink-0" />
                     <span>{faceLoginStatusText}</span>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 font-medium">{faceLoginStatusText}</p>
+                  <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                    <span>{faceLoginStatusText}</span>
+                  </div>
                 )}
               </div>
 
               {/* Scan Face to Login CTA Button */}
-              {faceLoginMode === 'camera' && (
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    disabled={faceLoginScanning || !faceLoginCameraActive}
-                    onClick={() => handlePerformFaceLogin()}
-                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {faceLoginScanning ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> กำลังตรวจสอบใบหน้า...
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="w-5 h-5" /> สแกนใบหน้าเพื่อเข้าสู่ระบบ
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  disabled={faceOvalStatus === 'scanning' || faceOvalStatus === 'matched' || !faceLoginCameraActive}
+                  onClick={() => handlePerformFaceLogin(true)}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {faceOvalStatus === 'scanning' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> AI กำลังวิเคราะห์ใบหน้า...
+                    </>
+                  ) : faceOvalStatus === 'matched' ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-300" /> เข้าสู่ระบบสำเร็จ...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-5 h-5" /> ตรวจสอบใบหน้าทันที (หรือรอระบบตรวจจับอัตโนมัติ)
+                    </>
+                  )}
+                </button>
+              </div>
 
               {/* Register link */}
               <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">

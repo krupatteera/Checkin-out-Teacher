@@ -431,37 +431,11 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                 <span className="text-rose-500">*</span>
               </label>
 
-              {/* Mode Toggle: Camera vs Upload */}
+              {/* Camera mode badge */}
               {!previewImg && !duplicateMacInfo.isDuplicate && (
-                <div className="flex items-center gap-1 p-0.5 bg-purple-50 rounded-lg border border-purple-100 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCaptureMode('camera');
-                      startCamera();
-                    }}
-                    className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                      captureMode === 'camera'
-                        ? 'bg-[#7C3AED] text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-purple-700'
-                    }`}
-                  >
-                    เปิดกล้องหน้า
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCaptureMode('upload');
-                      stopCamera();
-                    }}
-                    className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                      captureMode === 'upload'
-                        ? 'bg-[#7C3AED] text-white shadow-2xs'
-                        : 'text-slate-600 hover:text-purple-700'
-                    }`}
-                  >
-                    อัปโหลดรูป
-                  </button>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 rounded-lg border border-purple-200 text-[11px] font-bold text-[#7C3AED]">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>กล้องสด (ไม่ใช้อัปโหลด)</span>
                 </div>
               )}
             </div>
@@ -497,7 +471,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                     <RefreshCw className="w-3.5 h-3.5" /> ถ่ายใหม่
                   </button>
                 </div>
-              ) : captureMode === 'camera' ? (
+              ) : (
                 /* Live Camera Feed */
                 <div className="relative w-full h-full flex items-center justify-center">
                   {cameraError ? (
@@ -544,24 +518,6 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                       </div>
                     </>
                   )}
-                </div>
-              ) : (
-                /* File Upload Area */
-                <div className="p-6 text-center text-white flex flex-col items-center justify-center">
-                  <Upload className="w-12 h-12 text-purple-300 mx-auto mb-3" />
-                  <p className="text-xs font-medium text-purple-100 mb-3">
-                    เลือกไฟล์รูปภาพหน้าตรง (JPG, PNG)
-                  </p>
-                  <label className="px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-xs font-semibold cursor-pointer inline-flex items-center gap-2 shadow-md">
-                    <Upload className="w-4 h-4" />
-                    <span>เลือกไฟล์ภาพ</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                  </label>
                 </div>
               )}
             </div>
