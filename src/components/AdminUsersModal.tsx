@@ -213,10 +213,34 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     return true;
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedUserForDetail) {
+          setSelectedUserForDetail(null);
+        } else {
+          onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, selectedUserForDetail, onClose]);
+
   const pendingCount = users.filter((u) => u.status === 'PENDING').length;
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-sm animate-fadeIn">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-sm animate-fadeIn"
+    >
       <div className="relative w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
@@ -517,11 +541,31 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
           )}
         </div>
 
+        {/* Modal Footer with Close Button */}
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-purple-100 flex items-center justify-between text-xs shrink-0">
+          <div className="text-slate-500 font-medium">
+            แสดง {filteredUsers.length} จากทั้งหมด {users.length} รายชื่อ
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-700 font-bold transition-all cursor-pointer flex items-center gap-2 shadow-2xs"
+          >
+            <X className="w-4 h-4 text-slate-600" />
+            <span>ปิดหน้าต่าง</span>
+          </button>
+        </div>
+
         {/* ======================================================== */}
         {/* โมดูลดู: แสดงข้อมูลครู พร้อม USER และ PASSWORD            */}
         {/* ======================================================== */}
         {selectedUserForDetail && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-xs animate-fadeIn">
+          <div
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedUserForDetail(null);
+            }}
+            className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-900/85 backdrop-blur-xs animate-fadeIn"
+          >
             <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-200 p-5 sm:p-6 max-h-[92vh] overflow-y-auto">
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-3 border-b border-purple-100">

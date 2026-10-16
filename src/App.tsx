@@ -1109,38 +1109,46 @@ export default function App() {
       />
 
       {/* 2. Edit Profile Modal */}
-      <EditProfileModal
-        user={currentUser}
-        isOpen={editProfileModalOpen}
-        onClose={() => setEditProfileModalOpen(false)}
-        onSuccess={(updated) => {
-          setCurrentUser(updated);
-          sessionStorage.setItem('attendance_active_user', JSON.stringify(updated));
-        }}
-      />
+      {editProfileModalOpen && (
+        <EditProfileModal
+          user={currentUser}
+          isOpen={editProfileModalOpen}
+          onClose={() => setEditProfileModalOpen(false)}
+          onSuccess={(updated) => {
+            setCurrentUser(updated);
+            sessionStorage.setItem('attendance_active_user', JSON.stringify(updated));
+          }}
+        />
+      )}
 
       {/* 3. Admin Config Modal */}
-      <AdminConfigModal
-        config={config}
-        isOpen={configModalOpen}
-        onClose={() => setConfigModalOpen(false)}
-        onSuccess={(newCfg) => setConfig(newCfg)}
-      />
+      {configModalOpen && (
+        <AdminConfigModal
+          config={config}
+          isOpen={configModalOpen}
+          onClose={() => setConfigModalOpen(false)}
+          onSuccess={(newCfg) => setConfig(newCfg)}
+        />
+      )}
 
       {/* 4. Admin Users Modal */}
-      <AdminUsersModal
-        isOpen={usersModalOpen}
-        onClose={() => setUsersModalOpen(false)}
-        onOpenRegister={() => setRegisterModalOpen(true)}
-        currentAdminUsername={currentUser?.username || 'admin'}
-      />
+      {usersModalOpen && (
+        <AdminUsersModal
+          isOpen={usersModalOpen}
+          onClose={() => setUsersModalOpen(false)}
+          onOpenRegister={() => setRegisterModalOpen(true)}
+          currentAdminUsername={currentUser?.username || 'admin'}
+        />
+      )}
 
       {/* 5. Register Modal */}
-      <RegisterModal
-        isOpen={registerModalOpen}
-        onClose={() => setRegisterModalOpen(false)}
-        onSuccess={() => {}}
-      />
+      {registerModalOpen && (
+        <RegisterModal
+          isOpen={registerModalOpen}
+          onClose={() => setRegisterModalOpen(false)}
+          onSuccess={() => {}}
+        />
+      )}
     </div>
   );
 }
