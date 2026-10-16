@@ -279,7 +279,7 @@ export const FaceScannerModal: React.FC<FaceScannerModalProps> = ({
 
       // Perform genuine AI face verification
       const aiResult = await verifyFaceForAttendance(registeredFace, snapshot, {
-        username: user.username,
+        username: user.username || user.id,
         fullname: user.fullname
       });
 

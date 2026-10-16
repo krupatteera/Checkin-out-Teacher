@@ -9,6 +9,7 @@ export interface SweetAlertOptions {
   html?: string;
   icon?: 'success' | 'warning' | 'error' | 'info' | 'question';
   showCancelButton?: boolean;
+  showConfirmButton?: boolean;
   confirmButtonText?: string;
   cancelButtonText?: string;
   confirmButtonColor?: string;
@@ -84,7 +85,7 @@ export const Swal = {
             </button>
           </div>
         `;
-      } else {
+      } else if (options.showConfirmButton !== false) {
         buttonsHtml = `
           <div class="pt-2">
             <button id="swal-confirm" style="background-color: ${confirmColor};" class="w-full px-6 py-2.5 rounded-xl text-white text-sm font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer">

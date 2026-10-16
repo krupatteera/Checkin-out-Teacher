@@ -8,11 +8,12 @@ export interface SchoolConfig {
   centerLat: number;
   centerLng: number;
   radius: number; // in meters, e.g. 150
+  adminPin?: string; // 6-digit PIN for admin login (default "000000")
 }
 
 export interface UserAccount {
-  id: string; // doc ID or username
-  username: string;
+  id: string; // doc ID
+  username?: string;
   password?: string;
   fullname: string;
   position: string;

@@ -17,7 +17,8 @@ import {
   KeyRound,
   Copy,
   Check,
-  Bluetooth
+  Bluetooth,
+  UserCheck
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import {
@@ -47,10 +48,8 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
-  // Preview face & credentials detail modal ("โมดูลดู")
+  // Preview face & teacher detail modal
   const [selectedUserForDetail, setSelectedUserForDetail] = useState<UserAccount | null>(null);
-  const [showDetailPassword, setShowDetailPassword] = useState<boolean>(true);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -69,15 +68,6 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
       fetchUsers();
     }
   }, [isOpen]);
-
-  const copyToClipboard = (text: string, field: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => {
-      setCopiedField(null);
-    }, 2000);
-  };
 
   // Handle Approve User
   const handleApprove = async (u: UserAccount) => {
@@ -200,7 +190,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
   const filteredUsers = users.filter((u) => {
     const matchSearch =
       u.fullname.toLowerCase().includes(search.toLowerCase()) ||
-      u.username.toLowerCase().includes(search.toLowerCase()) ||
+      (u.username ? u.username.toLowerCase().includes(search.toLowerCase()) : false) ||
       (u.department && u.department.toLowerCase().includes(search.toLowerCase())) ||
       (u.registeredMac && u.registeredMac.toLowerCase().includes(search.toLowerCase()));
 
@@ -251,7 +241,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
             <div>
               <h3 className="font-bold text-lg">จัดการรายชื่อครูและบุคลากร</h3>
               <p className="text-xs text-purple-100">
-                อนุมัติสมาชิกใหม่ • ดู User & Password • ตรวจสอบ Bluetooth MAC & ชีวภาพ AI
+                อนุมัติสมาชิกใหม่ • ตรวจสอบ Bluetooth MAC & ชีวภาพใบหน้า AI
               </p>
             </div>
           </div>
@@ -328,7 +318,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="ค้นหาชื่อ, username, Bluetooth MAC..."
+                placeholder="ค้นหาชื่อ-นามสกุล, ตำแหน่ง, Bluetooth MAC..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-purple-100 text-xs focus:outline-none focus:border-[#7C3AED]"
@@ -394,10 +384,9 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                           isPending ? 'bg-amber-50/30' : ''
                         }`}
                       >
-                        {/* Name & Username */}
+                        {/* Name */}
                         <td className="px-4 py-3">
                           <div className="font-bold text-slate-900">{u.fullname}</div>
-                          <div className="text-[11px] text-purple-700 font-mono">@{u.username}</div>
                           {u.phone && (
                             <div className="text-[10px] text-slate-400 mt-0.5">โทร: {u.phone}</div>
                           )}
@@ -490,14 +479,11 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                               </button>
                             )}
 
-                            {/* View Detail button ("โมดูลดู" แสดง User & Password) */}
+                            {/* View Detail button */}
                             <button
-                              onClick={() => {
-                                setSelectedUserForDetail(u);
-                                setShowDetailPassword(true);
-                              }}
+                              onClick={() => setSelectedUserForDetail(u)}
                               className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white font-bold text-xs flex items-center gap-1 border border-purple-200 transition-colors cursor-pointer"
-                              title="ดู User, Password และรายละเอียดชีวภาพ AI"
+                              title="ดูรายละเอียดข้อมูลครูและชีวภาพ AI"
                             >
                               <Eye className="w-3.5 h-3.5" />
                               <span>ดูข้อมูล</span>
@@ -570,7 +556,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-3 border-b border-purple-100">
                 <h4 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-[#7C3AED]" /> ข้อมูลผู้ใช้งานและรหัสผ่าน (User & Password)
+                  <UserCheck className="w-5 h-5 text-[#7C3AED]" /> ข้อมูลครูและชีวภาพใบหน้า AI
                 </h4>
                 <button
                   onClick={() => setSelectedUserForDetail(null)}
@@ -607,6 +593,9 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                     {selectedUserForDetail.department || 'ไม่ระบุกลุ่มสาระ'}
                   </span>
                 </div>
+                {selectedUserForDetail.phone && (
+                  <p className="text-xs text-slate-500 mt-1">โทร: {selectedUserForDetail.phone}</p>
+                )}
 
                 {/* Status Badge */}
                 <div className="mt-2">
@@ -623,99 +612,6 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> อนุมัติใช้งานแล้ว (Active)
                     </span>
                   )}
-                </div>
-
-                {/* ======================================================== */}
-                {/* DEDICATED USER & PASSWORD CREDENTIALS BOX                */}
-                {/* ======================================================== */}
-                <div className="w-full mt-4 p-4 bg-gradient-to-br from-purple-50 via-indigo-50/50 to-purple-50 rounded-2xl border-2 border-purple-200 shadow-sm space-y-3">
-                  <div className="flex items-center justify-between text-xs font-bold text-[#7C3AED] pb-1.5 border-b border-purple-200/70">
-                    <span className="flex items-center gap-1.5">
-                      <KeyRound className="w-4 h-4 text-[#7C3AED]" /> ข้อมูลการเข้าสู่ระบบ (Credentials)
-                    </span>
-                    <span className="text-[10px] font-normal text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">
-                      สำหรับผู้ดูแลระบบ
-                    </span>
-                  </div>
-
-                  {/* USERNAME (User) */}
-                  <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Username (ชื่อผู้ใช้)
-                      </span>
-                      <span className="font-mono font-bold text-base text-purple-950">
-                        {selectedUserForDetail.username}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(selectedUserForDetail.username, 'user')}
-                      className="px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg border border-purple-200 flex items-center gap-1 cursor-pointer transition-colors"
-                      title="คัดลอก Username"
-                    >
-                      {copiedField === 'user' ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-emerald-700">คัดลอกแล้ว</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-purple-600" />
-                          <span>คัดลอก</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* PASSWORD */}
-                  <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Password (รหัสผ่าน)
-                      </span>
-                      <span className="font-mono font-bold text-base text-slate-900 tracking-wide">
-                        {showDetailPassword
-                          ? selectedUserForDetail.password || '(ไม่มีข้อมูลรหัสผ่าน)'
-                          : '••••••••••••'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setShowDetailPassword(!showDetailPassword)}
-                        className="p-1.5 text-slate-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors"
-                        title={showDetailPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-                      >
-                        {showDetailPassword ? (
-                          <EyeOff className="w-4 h-4 text-purple-700" />
-                        ) : (
-                          <Eye className="w-4 h-4 text-slate-400" />
-                        )}
-                      </button>
-
-                      {selectedUserForDetail.password && (
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(selectedUserForDetail.password!, 'pass')}
-                          className="px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg border border-purple-200 flex items-center gap-1 cursor-pointer transition-colors"
-                          title="คัดลอกรหัสผ่าน"
-                        >
-                          {copiedField === 'pass' ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              <span className="text-emerald-700">คัดลอกแล้ว</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5 text-purple-600" />
-                              <span>คัดลอก</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
                 </div>
 
                 {/* Bluetooth Device MAC Address Card */}

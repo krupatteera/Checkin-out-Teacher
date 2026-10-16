@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, MapPin, Clock, Save, X, Navigation, Loader2, Building, ShieldCheck, Image as ImageIcon } from 'lucide-react';
+import { Settings, MapPin, Clock, Save, X, Navigation, Loader2, Building, ShieldCheck, Image as ImageIcon, KeyRound, Eye, EyeOff } from 'lucide-react';
 import L from 'leaflet';
 import { SchoolConfig } from '../types';
 import { saveSchoolConfig } from '../firebase';
@@ -20,6 +20,7 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<SchoolConfig>({ ...config });
   const [loading, setLoading] = useState(false);
+  const [showAdminPin, setShowAdminPin] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -132,6 +133,11 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
 
     if (!formData.orgName.trim()) {
       Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุชื่อโรงเรียน', 'warning');
+      return;
+    }
+
+    if (formData.adminPin && formData.adminPin.length !== 6) {
+      Swal.fire('รหัส PIN ไม่ถูกต้อง', 'รหัส PIN ผู้ดูแลระบบต้องเป็นตัวเลข 6 หลักพอดี', 'warning');
       return;
     }
 
@@ -263,6 +269,43 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono font-bold"
                   />
                 </div>
+              </div>
+
+              {/* Admin 6-Digit PIN Update */}
+              <div className="pt-2 pb-2 border-b border-purple-100">
+                <h4 className="text-sm font-bold text-[#7C3AED] flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4" /> รหัส PIN ผู้ดูแลระบบ (Admin PIN)
+                </h4>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  รหัส PIN 6 หลักสำหรับเข้าสู่ระบบผู้ดูแลระบบ (เริ่มต้น 000000)
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type={showAdminPin ? 'text' : 'password'}
+                    maxLength={6}
+                    value={formData.adminPin || '000000'}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setFormData({ ...formData, adminPin: clean });
+                    }}
+                    placeholder="000000"
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono font-bold tracking-widest"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPin(!showAdminPin)}
+                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showAdminPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  * รหัสเริ่มต้นคือ 000000 ใช้สำหรับยืนยันตัวตนผ่านปุ่มลอยมุมขวาล่าง
+                </p>
               </div>
 
               <div className="pt-2 pb-2 border-b border-purple-100">

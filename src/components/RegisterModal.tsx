@@ -44,8 +44,6 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
   }>({ isDuplicate: false });
 
   const [formData, setFormData] = useState({
-    username: '',
-    password: '',
     fullname: '',
     position: '',
     department: '',
@@ -235,8 +233,8 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
       return;
     }
 
-    if (!formData.username.trim() || !formData.password.trim() || !formData.fullname.trim()) {
-      Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณากรอก Username, Password และชื่อ-นามสกุล', 'warning');
+    if (!formData.fullname.trim()) {
+      Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณากรอกชื่อ-นามสกุล', 'warning');
       return;
     }
 
@@ -262,8 +260,6 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
 
     try {
       const userPayload: Omit<UserAccount, 'id'> = {
-        username: formData.username.trim(),
-        password: formData.password.trim(),
         fullname: formData.fullname.trim(),
         position: formData.position.trim() || 'ครูผู้สอน',
         department: formData.department.trim() || 'วิชาการ',
@@ -294,7 +290,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
               <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
                 <p class="font-bold text-purple-900 text-sm">ยินดีต้อนรับ ${formData.fullname}</p>
-                <p class="text-slate-500 font-mono text-[11px] mt-0.5">Username: @${formData.username}</p>
+                <p class="text-slate-500 text-[11px] mt-0.5">${formData.position || 'ครูผู้สอน'} • ${formData.department || 'วิชาการ'}</p>
               </div>
               <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800">
                 <p class="font-bold flex items-center gap-1.5 text-xs">
@@ -610,44 +606,6 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
 
           {/* User Profile Form Fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Username (ชื่อผู้ใช้) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  required
-                  disabled={duplicateMacInfo.isDuplicate}
-                  placeholder="เช่น somchai.j"
-                  value={formData.username}
-                  onChange={(e) =>
-                    setFormData({ ...formData, username: e.target.value.toLowerCase().trim() })
-                  }
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 disabled:bg-slate-100 disabled:cursor-not-allowed"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Password (รหัสผ่าน) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  disabled={duplicateMacInfo.isDuplicate}
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 disabled:bg-slate-100 disabled:cursor-not-allowed"
-                />
-              </div>
-            </div>
-
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 ชื่อ-นามสกุล <span className="text-rose-500">*</span>

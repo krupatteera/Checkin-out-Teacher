@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   School,
   Lock,
@@ -25,7 +25,10 @@ import {
   Users,
   Settings,
   FileClock,
-  Bluetooth
+  Bluetooth,
+  Upload,
+  Loader2,
+  Check
 } from 'lucide-react';
 import { SchoolConfig, UserAccount, AttendanceRecord } from './types';
 import {
@@ -35,30 +38,42 @@ import {
   getUserStatusToday,
   getUserRecentHistory,
   saveAttendanceRecord,
+  getAllUsersList,
   DEFAULT_CONFIG
 } from './firebase';
-import { getOrGenerateBluetoothMac, getDeviceInfoLabel, verifyBluetoothMac } from './utils/deviceMac';
+import { getOrGenerateBluetoothMac, getDeviceInfoLabel } from './utils/deviceMac';
 import { Swal } from './utils/sweetAlert';
-import { FaceScannerModal } from './components/FaceScannerModal';
+import { identifyUserByFace } from './utils/aiFace';
+import { compressImageBase64 } from './utils/imageUtils';
 import { RegisterModal } from './components/RegisterModal';
 import { EditProfileModal } from './components/EditProfileModal';
 import { AdminConfigModal } from './components/AdminConfigModal';
 import { AdminUsersModal } from './components/AdminUsersModal';
+import { AdminPinModal } from './components/AdminPinModal';
 import { AdminReports } from './components/AdminReports';
 import { Navigation } from './components/Navigation';
-import { AttendanceSkeleton } from './components/SkeletonLoader';
+
+// Calculate distance in meters between two coordinates (Haversine Formula)
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // metres
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return Math.round(R * c);
+}
 
 export default function App() {
   // Global System State
   const [config, setConfig] = useState<SchoolConfig>(DEFAULT_CONFIG);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-
-  // Login form state
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loginLoading, setLoginLoading] = useState(false);
 
   // Active view tab
   const [currentTab, setCurrentTab] = useState<'home' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-logs'>('home');
@@ -69,13 +84,28 @@ export default function App() {
   const [userHistory, setUserHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Real-time GPS tracker state
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsDistance, setGpsDistance] = useState<number | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+
+  // Face Login (Camera & Upload) state for teachers
+  const [faceLoginMode, setFaceLoginMode] = useState<'camera' | 'upload'>('camera');
+  const [faceLoginScanning, setFaceLoginScanning] = useState(false);
+  const [faceLoginStatusText, setFaceLoginStatusText] = useState('จัดใบหน้าให้อยู่ในกรอบวงรีเพื่อเข้าสู่ระบบ');
+  const [faceLoginCameraActive, setFaceLoginCameraActive] = useState(false);
+  const [faceLoginCameraError, setFaceLoginCameraError] = useState<string | null>(null);
+  const loginVideoRef = useRef<HTMLVideoElement>(null);
+  const loginStreamRef = useRef<MediaStream | null>(null);
+
   // Current real-time clock
   const [timeString, setTimeString] = useState({ hourMin: '00:00', sec: '00' });
   const [thaiDateString, setThaiDateString] = useState('');
 
   // Modals state
-  const [faceModalOpen, setFaceModalOpen] = useState(false);
-  const [faceActionType, setFaceActionType] = useState<'IN' | 'OUT'>('IN');
+  const [adminPinModalOpen, setAdminPinModalOpen] = useState(false);
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
   const [configModalOpen, setConfigModalOpen] = useState(false);
@@ -128,7 +158,6 @@ export default function App() {
         if (!adminCheck) {
           await registerNewUser({
             username: 'admin',
-            password: '111',
             fullname: 'ผู้ดูแลระบบ (Admin)',
             position: 'ผู้ดูแลระบบ',
             department: 'บริหารทั่วไป',
@@ -167,6 +196,50 @@ export default function App() {
     }
   }, [currentUser, currentTab]);
 
+  // GPS Accuracy Tracker: continuously refresh GPS when teacher is on home screen
+  const refreshGpsLocation = () => {
+    if (!navigator.geolocation) {
+      setGpsError('เบราว์เซอร์ไม่รองรับ GPS');
+      return;
+    }
+
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const acc = Math.round(pos.coords.accuracy || 15);
+        setGpsCoords({ lat, lng });
+        setGpsAccuracy(acc);
+        setGpsError(null);
+
+        const centerLat = config.centerLat || 17.413840;
+        const centerLng = config.centerLng || 102.787260;
+        const dist = calculateDistanceMeters(lat, lng, centerLat, centerLng);
+        setGpsDistance(dist);
+        setGpsLoading(false);
+      },
+      (err) => {
+        console.warn('GPS error:', err);
+        setGpsLoading(false);
+        setGpsError('ไม่สามารถดึงพิกัด GPS ได้ กรุณาเปิดสิทธิ์การเข้าถึงตำแหน่ง');
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 3000
+      }
+    );
+  };
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin' && currentTab === 'home') {
+      refreshGpsLocation();
+      const interval = setInterval(refreshGpsLocation, 12000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser, currentTab, config]);
+
   // Fetch user attendance status
   const fetchUserAttendance = async (userId: string) => {
     setHistoryLoading(true);
@@ -185,93 +258,219 @@ export default function App() {
     }
   };
 
-  // Login handler
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // --------------------------------------------------------------------------
+  // CAMERA LOGIC FOR TEACHER FACE LOGIN
+  // --------------------------------------------------------------------------
+  const stopLoginCamera = () => {
+    if (loginStreamRef.current) {
+      loginStreamRef.current.getTracks().forEach((track) => track.stop());
+      loginStreamRef.current = null;
+    }
+    setFaceLoginCameraActive(false);
+  };
 
-    const u = loginUsername.trim();
-    const p = loginPassword.trim();
+  const startLoginCamera = async () => {
+    setFaceLoginCameraError(null);
+    try {
+      stopLoginCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 480 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      });
+      loginStreamRef.current = stream;
+      if (loginVideoRef.current) {
+        loginVideoRef.current.srcObject = stream;
+      }
+      setFaceLoginCameraActive(true);
+    } catch (err) {
+      console.error('Camera access error:', err);
+      setFaceLoginCameraError('ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตการเข้าถึงหรือเลือกอัปโหลดรูป');
+      setFaceLoginCameraActive(false);
+    }
+  };
 
-    if (!u || !p) {
-      Swal.fire('ข้อมูลไม่ครบ', 'กรุณากรอก Username และ Password', 'warning');
-      return;
+  useEffect(() => {
+    if (!currentUser && faceLoginMode === 'camera' && !registerModalOpen && !adminPinModalOpen) {
+      startLoginCamera();
+    } else {
+      stopLoginCamera();
+    }
+    return () => {
+      stopLoginCamera();
+    };
+  }, [currentUser, faceLoginMode, registerModalOpen, adminPinModalOpen]);
+
+  // Handle Teacher Face Scan Login
+  const handlePerformFaceLogin = async (rawImageStr?: string) => {
+    let imageToAnalyze = rawImageStr;
+
+    if (!imageToAnalyze) {
+      const video = loginVideoRef.current;
+      if (!video) {
+        Swal.fire('กล้องยังไม่พร้อม', 'กรุณารอสักครู่ให้กล้องเปิดทำงาน หรือเลือกอัปโหลดรูปภาพ', 'warning');
+        return;
+      }
+
+      const vw = video.videoWidth || 480;
+      const vh = video.videoHeight || 480;
+      const cropSize = Math.min(vw, vh);
+      const sx = (vw - cropSize) / 2;
+      const sy = (vh - cropSize) / 2;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 480;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
+      imageToAnalyze = canvas.toDataURL('image/jpeg', 0.85);
     }
 
-    setLoginLoading(true);
+    setFaceLoginScanning(true);
+    setFaceLoginStatusText('AI กำลังวิเคราะห์โครงสร้างใบหน้าและค้นหารายชื่อ...');
 
     try {
-      const userDoc = await findUserByUsername(u);
+      const compressed = await compressImageBase64(imageToAnalyze, 440, 440, 0.82);
+      const allUsers = await getAllUsersList();
+      const teacherCandidates = allUsers.filter((u) => u.role !== 'admin' && Boolean(u.img));
 
-      setLoginLoading(false);
-
-      if (!userDoc) {
-        Swal.fire('เข้าสู่ระบบไม่สำเร็จ', 'ไม่พบชื่อผู้ใช้งานนี้ในระบบ', 'error');
-        return;
-      }
-
-      if (userDoc.password !== p) {
-        Swal.fire('เข้าสู่ระบบไม่สำเร็จ', 'รหัสผ่านไม่ถูกต้อง', 'error');
-        return;
-      }
-
-      if (userDoc.status === 'PENDING') {
+      if (teacherCandidates.length === 0) {
+        setFaceLoginScanning(false);
+        setFaceLoginStatusText('ยังไม่มีฐานข้อมูลครูในระบบ กรุณาลงทะเบียนก่อน');
         Swal.fire({
-          title: 'รอการอนุมัติจากผู้ดูแลระบบ',
-          html: `
-            <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
-              <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800">
-                <p class="font-bold flex items-center gap-1.5 text-xs">
-                  <span>⏳ สถานะ: รอการอนุมัติ (Pending Approval)</span>
-                </p>
-                <p class="mt-1 text-[11px] leading-relaxed">
-                  บัญชีของ <b>${userDoc.fullname}</b> (@${userDoc.username}) ได้ลงทะเบียนข้อมูลและฐานข้อมูลใบหน้าแล้ว ขณะนี้<b>อยู่ระหว่างรอผู้ดูแลระบบ (Admin) ตรวจสอบและอนุมัติการใช้งาน</b>
-                </p>
-              </div>
-              <p class="text-[11px] text-slate-500">
-                *กรุณาติดต่อผู้ดูแลระบบเพื่อขอรับการอนุมัติก่อนเข้าสู่ระบบและลงเวลา
-              </p>
-            </div>
-          `,
+          title: 'ยังไม่มีฐานข้อมูลครู',
+          text: 'ยังไม่พบรายชื่อครูในระบบ กรุณากดปุ่ม "เมนูลงทะเบียน" เพื่อลงทะเบียนใบหน้าแรกของท่าน',
           icon: 'info',
-          confirmButtonColor: '#7C3AED',
-          confirmButtonText: 'รับทราบ'
+          confirmButtonColor: '#7C3AED'
         });
         return;
       }
 
-      if (userDoc.status !== 'ACTIVE') {
-        Swal.fire('บัญชีถูกระงับ', 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ', 'warning');
-        return;
-      }
+      const matchResult = await identifyUserByFace(compressed, teacherCandidates);
+      setFaceLoginScanning(false);
 
-      // If user hasn't bound a MAC yet, bind this current device automatically
-      if (!userDoc.registeredMac && userDoc.role !== 'admin') {
-        userDoc.registeredMac = currentDeviceMac;
-      }
+      if (matchResult.matchedUser) {
+        const foundUser = matchResult.matchedUser;
 
-      setCurrentUser(userDoc);
-      sessionStorage.setItem('attendance_active_user', JSON.stringify(userDoc));
+        // Check user approval status
+        if (foundUser.status === 'PENDING') {
+          Swal.fire({
+            title: 'รอการอนุมัติจากผู้ดูแลระบบ',
+            html: `
+              <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
+                <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900">
+                  <p class="font-bold flex items-center gap-1.5 text-xs">
+                    <span>⏳ บัญชีอยู่ระหว่างรอผู้ดูแลระบบอนุมัติ</span>
+                  </p>
+                  <p class="mt-1 text-[11px] leading-relaxed">
+                    พบใบหน้าของคุณ: <b>${foundUser.fullname}</b><br>
+                    ขณะนี้บัญชียังอยู่ในสถานะรอผู้ดูแลระบบตรวจสอบ กรุณาแจ้งผู้ดูแลระบบเพื่ออนุมัติการใช้งานก่อนเข้าสู่ระบบ
+                  </p>
+                </div>
+              </div>
+            `,
+            icon: 'info',
+            confirmButtonColor: '#7C3AED',
+            confirmButtonText: 'รับทราบ'
+          });
+          return;
+        }
 
-      Swal.fire({
-        title: 'ยินดีต้อนรับ',
-        text: `เข้าสู่ระบบสำเร็จ: ${userDoc.fullname}`,
-        icon: 'success',
-        timer: 1500
-      });
+        if (foundUser.status === 'INACTIVE') {
+          Swal.fire('บัญชีถูกระงับ', 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ', 'warning');
+          return;
+        }
 
-      if (userDoc.role === 'admin') {
-        setCurrentTab('admin-dashboard');
-      } else {
-        fetchUserAttendance(userDoc.id);
+        // Check / Bind Bluetooth MAC Address
+        if (!foundUser.registeredMac) {
+          foundUser.registeredMac = currentDeviceMac;
+        } else if (foundUser.registeredMac !== currentDeviceMac) {
+          // Warning if device changed
+          const confirmChange = await Swal.fire({
+            title: 'พบอุปกรณ์ใหม่ (Bluetooth MAC ต่างกัน)',
+            html: `
+              <div class="text-left text-xs text-slate-600 space-y-1.5">
+                <p>บัญชีของคุณผูกไว้กับอุปกรณ์: <span class="font-mono text-purple-900">${foundUser.registeredMac}</span></p>
+                <p>อุปกรณ์ปัจจุบันคือ: <span class="font-mono text-purple-900">${currentDeviceMac}</span> (${deviceLabel})</p>
+                <p class="text-amber-800 font-semibold pt-1">* หากท่านเปลี่ยนอุปกรณ์ใหม่ กรุณาติดต่อผู้ดูแลระบบเพื่อรีเซ็ต Bluetooth MAC ก่อน</p>
+              </div>
+            `,
+            icon: 'warning',
+            confirmButtonColor: '#7C3AED',
+            confirmButtonText: 'รับทราบ'
+          });
+          // Allow login or proceed
+        }
+
+        stopLoginCamera();
+        setCurrentUser(foundUser);
+        sessionStorage.setItem('attendance_active_user', JSON.stringify(foundUser));
+
+        await Swal.fire({
+          title: 'เข้าสู่ระบบสำเร็จ!',
+          html: `
+            <div class="text-center text-xs text-slate-600 space-y-2">
+              <p class="font-bold text-slate-800 text-sm">ยินดีต้อนรับ คุณ ${foundUser.fullname}</p>
+              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] font-bold text-xs border border-purple-200">
+                <Sparkles className="w-3.5 h-3.5" /> AI Face Verified (${matchResult.confidenceScore}%)
+              </div>
+            </div>
+          `,
+          icon: 'success',
+          timer: 1600,
+          showConfirmButton: false
+        });
+
+        fetchUserAttendance(foundUser.id);
         setCurrentTab('home');
+      } else {
+        setFaceLoginStatusText('ไม่พบใบหน้าที่ตรงกับฐานข้อมูล กรุณาจัดใบหน้าให้อยู่ตรงกลาง');
+        Swal.fire({
+          title: 'ไม่พบใบหน้าในระบบ',
+          html: `
+            <div class="text-left text-xs text-slate-600 space-y-2">
+              <p>ระบบ AI ไม่สามารถจับคู่ใบหน้าของท่านกับฐานข้อมูลครูที่มีอยู่ได้</p>
+              <p class="text-[11px] text-slate-500">
+                คำแนะนำ:<br>
+                1. ตรวจสอบให้แน่ใจว่าแสงสว่างเพียงพอและใบหน้าไม่ย้อนแสง<br>
+                2. จัดใบหน้าให้อยู่ในกรอบวงรีและมองตรง<br>
+                3. หากยังไม่เคยลงทะเบียน กรุณากดปุ่ม <b>"เมนูลงทะเบียน"</b>
+              </p>
+            </div>
+          `,
+          icon: 'warning',
+          confirmButtonColor: '#7C3AED'
+        });
       }
-    } catch (err: unknown) {
-      setLoginLoading(false);
-      Swal.fire('เกิดข้อผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
+    } catch (err) {
+      console.error('Face login error:', err);
+      setFaceLoginScanning(false);
+      setFaceLoginStatusText('เกิดข้อผิดพลาดในการตรวจสอบใบหน้า');
+      Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถวิเคราะห์ใบหน้าได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
   };
 
-  // Logout with Sweet Confirm
+  // Upload face image for login
+  const handleLoginImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const raw = event.target?.result as string;
+        await handlePerformFaceLogin(raw);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Logout handler
   const handleLogout = async () => {
     const res = await Swal.fire({
       title: 'ยืนยันการออกจากระบบ?',
@@ -286,37 +485,55 @@ export default function App() {
     if (res.isConfirmed) {
       sessionStorage.removeItem('attendance_active_user');
       setCurrentUser(null);
-      setLoginPassword('');
       setMobileMenuOpen(false);
       Swal.fire({
         title: 'ออกจากระบบสำเร็จ',
         icon: 'success',
-        timer: 1200
+        timer: 1200,
+        showConfirmButton: false
       });
     }
   };
 
-  // Open Face Scanner for Clock In / Out (Teachers only)
-  const handleTriggerClock = (action: 'IN' | 'OUT') => {
+  // --------------------------------------------------------------------------
+  // DIRECT CLOCK IN / OUT (NO FACE SCANNER - ONLY BLUETOOTH MAC + GPS)
+  // Mutual exclusion: When clocked in/out today -> CANNOT LEAVE or OFFICIAL!
+  // When leave or official today -> CANNOT CLOCK IN or CLOCK OUT!
+  // --------------------------------------------------------------------------
+  const handleDirectClock = async (action: 'IN' | 'OUT') => {
     if (!currentUser || currentUser.role === 'admin') return;
 
+    // 1. Mutual exclusion: If already on leave or official duty today -> CANNOT CLOCK IN / OUT
     if (todaySummary.leave) {
-      Swal.fire('ไม่สามารถลงเวลาได้', `ระบบพบว่าคุณได้แจ้งลาหยุด (${todaySummary.leave}) ไปแล้วในวันนี้`, 'warning');
-      return;
-    }
-    if (todaySummary.official) {
-      Swal.fire('ไม่สามารถลงเวลาได้', `ระบบพบว่าคุณได้บันทึกไปราชการ (${todaySummary.official}) แล้วในวันนี้`, 'warning');
+      Swal.fire({
+        title: 'ไม่สามารถลงเวลาได้',
+        text: `วันนี้คุณได้แจ้งลาหยุด (${todaySummary.leave}) ไปแล้ว ตามระเบียบเมื่อลาแล้วจะไม่สามารถลงเวลาได้`,
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
       return;
     }
 
+    if (todaySummary.official) {
+      Swal.fire({
+        title: 'ไม่สามารถลงเวลาได้',
+        text: `วันนี้คุณได้บันทึกไปราชการ (${todaySummary.official}) แล้ว ตามระเบียบเมื่อไปราชการแล้วจะไม่สามารถลงเวลาได้`,
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
+
+    // Check duplicate check-in
     if (action === 'IN' && todaySummary.in !== '--:--') {
       Swal.fire('ลงเวลาเข้างานแล้ว', `คุณได้ลงเวลาเข้างานไปแล้วเมื่อ ${todaySummary.in} น.`, 'info');
       return;
     }
 
+    // Check check-out constraints
     if (action === 'OUT') {
       if (todaySummary.in === '--:--') {
-        Swal.fire('ไม่อนุญาตให้ลงเวลากลับ', 'กรุณาสแกน "ลงเวลาเข้างาน" ให้เรียบร้อยก่อนลงเวลากลับ', 'warning');
+        Swal.fire('ไม่อนุญาตให้ลงเวลากลับ', 'กรุณากด "ลงเวลาเข้างาน" ให้เรียบร้อยก่อนลงเวลากลับ', 'warning');
         return;
       }
       if (todaySummary.out !== '--:--') {
@@ -325,33 +542,66 @@ export default function App() {
       }
     }
 
-    setFaceActionType(action);
-    setFaceModalOpen(true);
-  };
+    // 2. Validate Bluetooth MAC Address
+    if (currentUser.registeredMac && currentUser.registeredMac !== currentDeviceMac) {
+      Swal.fire({
+        title: 'ไม่อนุญาตให้ลงเวลา!',
+        html: `
+          <div class="text-left text-xs text-slate-600 space-y-2">
+            <p class="text-rose-600 font-bold">รหัส Bluetooth MAC ไม่ตรงกับเครื่องที่ลงทะเบียนไว้</p>
+            <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-200">
+              <p>เครื่องที่ผูกไว้: <span class="font-mono text-purple-900">${currentUser.registeredMac}</span></p>
+              <p>เครื่องปัจจุบัน: <span class="font-mono text-rose-800">${currentDeviceMac}</span> (${deviceLabel})</p>
+            </div>
+            <p class="text-[11px] text-slate-500">ระบบจำกัดให้ลงเวลาได้เฉพาะอุปกรณ์ที่ลงทะเบียนไว้เท่านั้นเพื่อป้องกันการลงเวลาแทนกัน</p>
+          </div>
+        `,
+        icon: 'error',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
 
-  // Handle successful face scan + GPS capture with AI Face Recognition
-  const handleFaceSuccess = async (result: {
-    lat: number;
-    lng: number;
-    distance: number;
-    macAddress: string;
-    faceSnapshot: string;
-    aiVerification?: {
-      isMatch: boolean;
-      confidenceScore: number;
-      analysis: string;
-    };
-  }) => {
-    setFaceModalOpen(false);
+    // 3. Validate GPS Position & Radius
+    if (!gpsCoords || gpsDistance === null) {
+      Swal.fire({
+        title: 'กำลังค้นหาพิกัด GPS',
+        text: 'ระบบกำลังดึงพิกัดดาวเทียม กรุณารอสักครู่หรือกดปุ่ม "รีเฟรชพิกัด" ด้านบน',
+        icon: 'info',
+        confirmButtonColor: '#7C3AED'
+      });
+      refreshGpsLocation();
+      return;
+    }
 
-    if (!currentUser) return;
+    const allowedRadius = config.radius || 150;
+    if (gpsDistance > allowedRadius) {
+      Swal.fire({
+        title: 'อยู่นอกพื้นที่โรงเรียน!',
+        html: `
+          <div class="text-left text-xs text-slate-600 space-y-2">
+            <p class="text-rose-600 font-bold">ท่านอยู่ห่างจากโรงเรียนเกินระยะที่กำหนด</p>
+            <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-200">
+              <p>ระยะห่างปัจจุบัน: <b>${gpsDistance} เมตร</b></p>
+              <p>รัศมีที่อนุญาต: <b>ไม่เกิน ${allowedRadius} เมตร</b></p>
+              <p class="text-[10px] text-slate-500 mt-1">ความแม่นยำพิกัด: ±${gpsAccuracy || 15} ม.</p>
+            </div>
+            <p class="text-[11px] text-slate-500">กรุณาเข้าสู่บริเวณพื้นที่ ${config.orgName} ก่อนทำการลงเวลา</p>
+          </div>
+        `,
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
 
+    // 4. Save Attendance Record directly with GPS + Bluetooth MAC
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' });
 
-    const isLate = Boolean(faceActionType === 'IN' && config.lateTime && timeStr > config.lateTime);
-    const isEarly = Boolean(faceActionType === 'OUT' && config.earlyTime && timeStr < config.earlyTime);
+    const isLate = Boolean(action === 'IN' && config.lateTime && timeStr > config.lateTime);
+    const isEarly = Boolean(action === 'OUT' && config.earlyTime && timeStr < config.earlyTime);
 
     let finalNote = '';
     if (isLate) finalNote = 'เข้าสาย';
@@ -360,32 +610,36 @@ export default function App() {
     try {
       await saveAttendanceRecord({
         userId: currentUser.id,
-        employeeId: currentUser.username,
+        employeeId: currentUser.username || currentUser.id,
         employeeName: currentUser.fullname,
-        action: faceActionType,
+        action,
         date: dateStr,
         dateThai: thaiDateString,
         time: timeStr,
-        lat: result.lat,
-        lng: result.lng,
-        distance: result.distance,
+        lat: gpsCoords.lat,
+        lng: gpsCoords.lng,
+        distance: gpsDistance,
         isLate,
         isEarly,
         note: finalNote,
-        macAddress: result.macAddress,
-        faceSnapshot: result.faceSnapshot,
-        aiVerification: result.aiVerification,
+        macAddress: currentDeviceMac,
         timestamp: now.getTime()
       });
 
-      const aiMatchBadge = result.aiVerification
-        ? `<div class="mt-2.5 p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-left text-xs"><div class="font-bold text-[#7C3AED] flex items-center gap-1">✨ AI Face Match: ${result.aiVerification.confidenceScore}%</div><p class="text-[11px] text-slate-600 mt-0.5">${result.aiVerification.analysis}</p></div>`
-        : '';
-
       await Swal.fire({
-        title: faceActionType === 'IN' ? 'ลงเวลาเข้างานสำเร็จ!' : 'ลงเวลากลับสำเร็จ!',
-        html: `เวลา: <b>${timeStr} น.</b><br>${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span><br>' : ''}${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span><br>' : ''}<span class="text-xs text-slate-500 font-mono">MAC: ${result.macAddress}</span>${aiMatchBadge}`,
-        icon: 'success'
+        title: action === 'IN' ? 'ลงเวลาเข้างานสำเร็จ!' : 'ลงเวลากลับสำเร็จ!',
+        html: `
+          <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
+            <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
+              <p class="text-sm font-bold text-purple-900">เวลา: ${timeStr} น. ${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span>' : ''} ${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span>' : ''}</p>
+              <p class="text-[11px] text-slate-500 mt-1">พิกัด GPS: ${gpsCoords.lat.toFixed(5)}, ${gpsCoords.lng.toFixed(5)} (ห่าง ร.ร. ${gpsDistance} ม.)</p>
+              <p class="text-[11px] font-mono text-purple-800 mt-0.5">Bluetooth MAC: ${currentDeviceMac}</p>
+            </div>
+            <p class="text-[10px] text-emerald-700 font-bold">✓ บันทึกเวลาด้วยพิกัด GPS และ Bluetooth MAC เรียบร้อยแล้ว</p>
+          </div>
+        `,
+        icon: 'success',
+        confirmButtonColor: '#7C3AED'
       });
 
       fetchUserAttendance(currentUser.id);
@@ -394,9 +648,32 @@ export default function App() {
     }
   };
 
-  // Handle Leave with Custom SweetAlert (Teachers only)
+  // --------------------------------------------------------------------------
+  // LEAVE & OFFICIAL DUTY HANDLERS (MUTUAL EXCLUSION CHECK)
+  // When already clocked in/out today -> CANNOT LEAVE OR OFFICIAL!
+  // --------------------------------------------------------------------------
   const handleLeaveRequest = async () => {
     if (!currentUser || currentUser.role === 'admin') return;
+
+    // Mutual exclusion check: If already clocked in or clocked out today -> CANNOT REQUEST LEAVE!
+    if (todaySummary.in !== '--:--' || todaySummary.out !== '--:--') {
+      Swal.fire({
+        title: 'ไม่สามารถแจ้งลาหยุดได้',
+        html: `
+          <div class="text-left text-xs text-slate-600 space-y-2">
+            <p class="text-rose-600 font-bold">คุณได้ลงเวลาปฏิบัติงานในวันนี้ไปแล้ว</p>
+            <p>เวลาเข้างาน: <b>${todaySummary.in} น.</b></p>
+            <p class="text-[11px] text-slate-500">
+              ตามระเบียบของระบบ เมื่อมีการลงเวลาปฏิบัติงานในวันดังกล่าวแล้ว จะไม่สามารถแจ้งลาหยุดหรือไปราชการได้
+            </p>
+          </div>
+        `,
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
+
     if (todaySummary.leave) {
       Swal.fire('แจ้งลาแล้ว', 'วันนี้คุณได้ทำการแจ้งลาหยุดไปแล้ว', 'info');
       return;
@@ -415,7 +692,7 @@ export default function App() {
     try {
       await saveAttendanceRecord({
         userId: currentUser.id,
-        employeeId: currentUser.username,
+        employeeId: currentUser.username || currentUser.id,
         employeeName: currentUser.fullname,
         action: 'LEAVE',
         date: dateStr,
@@ -433,9 +710,28 @@ export default function App() {
     }
   };
 
-  // Handle Official Duty (Teachers only)
   const handleOfficialDutyRequest = async () => {
     if (!currentUser || currentUser.role === 'admin') return;
+
+    // Mutual exclusion check: If already clocked in or clocked out today -> CANNOT GO OFFICIAL!
+    if (todaySummary.in !== '--:--' || todaySummary.out !== '--:--') {
+      Swal.fire({
+        title: 'ไม่สามารถบันทึกไปราชการได้',
+        html: `
+          <div class="text-left text-xs text-slate-600 space-y-2">
+            <p class="text-rose-600 font-bold">คุณได้ลงเวลาปฏิบัติงานในวันนี้ไปแล้ว</p>
+            <p>เวลาเข้างาน: <b>${todaySummary.in} น.</b></p>
+            <p class="text-[11px] text-slate-500">
+              ตามระเบียบของระบบ เมื่อมีการลงเวลาปฏิบัติงานในวันดังกล่าวแล้ว จะไม่สามารถบันทึกไปราชการหรือแจ้งลาได้
+            </p>
+          </div>
+        `,
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
+
     if (todaySummary.official) {
       Swal.fire('บันทึกแล้ว', 'วันนี้คุณได้บันทึกไปราชการไปแล้ว', 'info');
       return;
@@ -451,7 +747,7 @@ export default function App() {
     try {
       await saveAttendanceRecord({
         userId: currentUser.id,
-        employeeId: currentUser.username,
+        employeeId: currentUser.username || currentUser.id,
         employeeName: currentUser.fullname,
         action: 'OFFICIAL',
         date: dateStr,
@@ -470,17 +766,15 @@ export default function App() {
   };
 
   // --------------------------------------------------------------------------
-  // RENDER: LOGIN PAGE (HORIZONTAL CARD)
+  // RENDER: TEACHER FACE LOGIN + FLOATING ADMIN PIN BUTTON (WHEN LOGGED OUT)
   // --------------------------------------------------------------------------
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-purple-50/40 to-slate-100 p-4 sm:p-6 lg:p-10">
+      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-purple-50/40 to-slate-100 p-4 sm:p-6 lg:p-10 relative">
         <div className="flex-1 flex items-center justify-center py-6">
-          {/* Horizontal Card for Login */}
           <div className="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl shadow-purple-950/10 border border-purple-100 overflow-hidden grid grid-cols-1 md:grid-cols-12 transition-all">
-            {/* Left Column: School Information & Pastel Purple Branding */}
+            {/* Left Column: School Info & Branding */}
             <div className="md:col-span-5 bg-gradient-to-br from-[#7C3AED] via-[#6D28D9] to-[#8B5CF6] p-8 sm:p-10 text-white flex flex-col justify-between relative overflow-hidden">
-              {/* Decorative background glow */}
               <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#C4B5FD]/20 blur-3xl" />
               <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-[#8B5CF6]/25 blur-3xl" />
 
@@ -514,15 +808,15 @@ export default function App() {
                 <div className="mt-8 space-y-3 text-xs">
                   <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
                     <Camera className="w-5 h-5 text-[#C4B5FD] shrink-0" />
-                    <span>สแกนใบหน้าตรวจสอบตัวตนผ่านมือถือ</span>
+                    <span>เข้าสู่ระบบด้วยการสแกนใบหน้า (AI Face Login)</span>
                   </div>
                   <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
                     <MapPin className="w-5 h-5 text-[#AED581] shrink-0" />
-                    <span>บังคับพิกัด GPS ให้อยู่ในรัศมี {config.radius} เมตร</span>
+                    <span>ลงเวลาด้วยพิกัด GPS แม่นยำ รัศมี {config.radius} เมตร</span>
                   </div>
                   <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
-                    <ShieldCheck className="w-5 h-5 text-[#FFCA28] shrink-0" />
-                    <span>จดจำ MAC Address ป้องกันการลงเวลาแทนกัน</span>
+                    <Bluetooth className="w-5 h-5 text-[#FFCA28] shrink-0" />
+                    <span>ผูกรหัส Bluetooth MAC ประจำเครื่อง ป้องกันลงเวลาแทนกัน</span>
                   </div>
                 </div>
               </div>
@@ -530,89 +824,150 @@ export default function App() {
               {/* Hardware Device Signature Info */}
               <div className="relative z-10 mt-8 pt-4 border-t border-white/15 text-[11px] text-purple-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-[#C4B5FD]" />
+                  <Bluetooth className="w-4 h-4 text-[#C4B5FD]" />
                   <span className="font-mono">{currentDeviceMac}</span>
                 </div>
                 <span className="text-[10px] bg-white/15 px-2 py-0.5 rounded-full">{deviceLabel}</span>
               </div>
             </div>
 
-            {/* Right Column: Unified Login Form (Teacher & Admin) */}
-            <div className="md:col-span-7 p-8 sm:p-12 flex flex-col justify-center">
-              <div className="mb-6">
+            {/* Right Column: AI Face Login Screen (No User/Pass!) */}
+            <div className="md:col-span-7 p-6 sm:p-10 flex flex-col justify-center">
+              <div className="mb-5 text-center sm:text-left">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold mb-2 border border-purple-200">
-                  <Lock className="w-3.5 h-3.5" /> เข้าสู่ระบบแบบรวมบทบาท
+                  <Sparkles className="w-3.5 h-3.5" /> ระบบล็อกอินด้วยการสแกนใบหน้า AI
                 </div>
-                <h2 className="text-2xl font-extrabold text-slate-800">เข้าสู่ระบบ</h2>
+                <h2 className="text-2xl font-extrabold text-slate-800">เข้าสู่ระบบสำหรับครู</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  สำหรับครูและผู้ดูแลระบบ (ระบบตรวจสอบสิทธิ์จาก Username อัตโนมัติ)
+                  หันหน้าตรงเข้าหากล้องและกดปุ่มสแกน เพื่อยืนยันตัวตนเข้าใช้งานอัตโนมัติ
                 </p>
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    รหัสผู้ใช้งาน (Username)
-                  </label>
-                  <div className="relative">
-                    <User className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="เช่น kru.somchai หรือ admin"
-                      value={loginUsername}
-                      onChange={(e) => setLoginUsername(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/60 transition-all font-medium"
-                    />
-                  </div>
-                </div>
+              {/* Camera / Upload Mode Selector */}
+              <div className="flex items-center justify-end gap-1 mb-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFaceLoginMode('camera');
+                    startLoginCamera();
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    faceLoginMode === 'camera'
+                      ? 'bg-[#7C3AED] text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-purple-700 bg-purple-50'
+                  }`}
+                >
+                  เปิดกล้องหน้า
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFaceLoginMode('upload');
+                    stopLoginCamera();
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    faceLoginMode === 'upload'
+                      ? 'bg-[#7C3AED] text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-purple-700 bg-purple-50'
+                  }`}
+                >
+                  อัปโหลดรูป
+                </button>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    รหัสผ่าน (Password)
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      placeholder="••••••••"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      className="w-full pl-11 pr-11 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/60 transition-all font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
-                </div>
+              {/* Face Scanner Viewport */}
+              <div className="relative w-full aspect-square max-w-[280px] sm:max-w-[300px] mx-auto rounded-3xl overflow-hidden bg-slate-900 border-4 border-purple-200 shadow-xl flex items-center justify-center">
+                {faceLoginMode === 'camera' ? (
+                  faceLoginCameraError ? (
+                    <div className="p-4 text-center text-white">
+                      <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-2" />
+                      <p className="text-xs font-medium mb-3">{faceLoginCameraError}</p>
+                      <button
+                        type="button"
+                        onClick={startLoginCamera}
+                        className="px-3.5 py-1.5 bg-[#7C3AED] text-white rounded-xl text-xs font-bold cursor-pointer"
+                      >
+                        ลองใหม่อีกครั้ง
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <video
+                        ref={loginVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
 
-                <div className="pt-2">
+                      {/* Oval Alignment Guide */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div className="w-44 h-56 border-2 border-dashed border-[#A78BFA] rounded-[50%] shadow-[0_0_15px_rgba(167,139,250,0.5)] flex items-center justify-center">
+                          <span className="text-[10px] text-purple-200 font-medium px-2 py-0.5 bg-black/40 rounded-full backdrop-blur-xs">
+                            จัดใบหน้าในกรอบวงรี
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )
+                ) : (
+                  /* Upload Mode */
+                  <div className="p-6 text-center text-white flex flex-col items-center justify-center">
+                    <Upload className="w-12 h-12 text-purple-300 mx-auto mb-3" />
+                    <p className="text-xs font-medium text-purple-100 mb-3">
+                      เลือกไฟล์รูปถ่ายหน้าตรงเพื่อล็อกอิน
+                    </p>
+                    <label className="px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-2 shadow-md">
+                      <Upload className="w-4 h-4" />
+                      <span>เลือกไฟล์ภาพ</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLoginImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Status Hint */}
+              <div className="mt-3 text-center">
+                {faceLoginScanning ? (
+                  <div className="inline-flex items-center gap-2 text-xs font-bold text-[#7C3AED]">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{faceLoginStatusText}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 font-medium">{faceLoginStatusText}</p>
+                )}
+              </div>
+
+              {/* Scan Face to Login CTA Button */}
+              {faceLoginMode === 'camera' && (
+                <div className="mt-4">
                   <button
-                    type="submit"
-                    disabled={loginLoading}
+                    type="button"
+                    disabled={faceLoginScanning || !faceLoginCameraActive}
+                    onClick={() => handlePerformFaceLogin()}
                     className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {loginLoading ? (
+                    {faceLoginScanning ? (
                       <>
-                        <RefreshCw className="w-4 h-4 animate-spin" /> กำลังตรวจสอบข้อมูล...
+                        <Loader2 className="w-4 h-4 animate-spin" /> กำลังตรวจสอบใบหน้า...
                       </>
                     ) : (
                       <>
-                        <Lock className="w-4 h-4" /> ล็อกอินเข้าสู่ระบบ
+                        <Camera className="w-5 h-5" /> สแกนใบหน้าเพื่อเข้าสู่ระบบ
                       </>
                     )}
                   </button>
                 </div>
-              </form>
+              )}
 
-              {/* Register link with MAC binding mention */}
-              <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">
-                <span className="text-slate-500">ยังไม่มีบัญชีผู้ใช้งานหรือเครื่องใหม่?</span>
+              {/* Register link */}
+              <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">
+                <span className="text-slate-500">ครูใหม่ หรือยังไม่เคยลงทะเบียนใบหน้า?</span>
                 <button
                   type="button"
                   onClick={() => setRegisterModalOpen(true)}
@@ -625,17 +980,62 @@ export default function App() {
           </div>
         </div>
 
-        {/* Footer as requested */}
+        {/* Global Footer */}
         <footer className="text-center py-4 text-xs font-semibold text-slate-500">
           ระบบลงเวลาปฏิบัติงานออนไลน์ {config.orgName} โดย รองฯภัทรธีระ ประทุมเม
         </footer>
 
-        {/* Register Modal */}
-        <RegisterModal
-          isOpen={registerModalOpen}
-          onClose={() => setRegisterModalOpen(false)}
-          onSuccess={() => {}}
+        {/* Floating Action Button (Bottom Right) for Admin PIN Login */}
+        <div className="fixed bottom-6 right-6 z-40 group">
+          <button
+            type="button"
+            onClick={() => setAdminPinModalOpen(true)}
+            className="w-14 h-14 rounded-full bg-gradient-to-br from-[#7C3AED] via-[#8B5CF6] to-[#6D28D9] text-white flex items-center justify-center shadow-xl shadow-purple-900/30 hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/80"
+            title="เข้าระบบผู้ดูแลระบบ (Admin PIN 6 หลัก)"
+          >
+            <ShieldCheck className="w-7 h-7" />
+          </button>
+          <div className="absolute right-16 top-2.5 px-3 py-1.5 rounded-xl bg-slate-900/90 text-white text-xs font-semibold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
+            เข้าระบบผู้ดูแลระบบ (Admin PIN)
+          </div>
+        </div>
+
+        {/* Admin PIN Modal */}
+        <AdminPinModal
+          isOpen={adminPinModalOpen}
+          onClose={() => setAdminPinModalOpen(false)}
+          config={config}
+          onSuccess={() => {
+            const adminUser: UserAccount = {
+              id: 'admin',
+              fullname: 'ผู้ดูแลระบบ (Admin)',
+              position: 'ผู้ดูแลระบบ',
+              department: 'บริหารทั่วไป',
+              role: 'admin',
+              status: 'ACTIVE',
+              username: 'admin'
+            };
+            setCurrentUser(adminUser);
+            sessionStorage.setItem('attendance_active_user', JSON.stringify(adminUser));
+            setCurrentTab('admin-dashboard');
+            Swal.fire({
+              title: 'เข้าสู่ระบบสำเร็จ',
+              text: 'ยินดีต้อนรับ ผู้ดูแลระบบ (Admin)',
+              icon: 'success',
+              timer: 1400,
+              showConfirmButton: false
+            });
+          }}
         />
+
+        {/* Register Modal */}
+        {registerModalOpen && (
+          <RegisterModal
+            isOpen={registerModalOpen}
+            onClose={() => setRegisterModalOpen(false)}
+            onSuccess={() => {}}
+          />
+        )}
       </div>
     );
   }
@@ -645,7 +1045,7 @@ export default function App() {
   // --------------------------------------------------------------------------
   return (
     <div className="min-h-screen flex flex-col bg-slate-50/80">
-      {/* Navigation (Sidebar Desktop + Off-Canvas Mobile + Floating Bottom Nav) */}
+      {/* Navigation */}
       <Navigation
         user={currentUser}
         config={config}
@@ -654,7 +1054,7 @@ export default function App() {
         onLogout={handleLogout}
         mobileMenuOpen={mobileMenuOpen}
         onCloseMobileMenu={() => setMobileMenuOpen(false)}
-        onOpenFaceScanner={(action) => handleTriggerClock(action)}
+        onOpenFaceScanner={(action) => handleDirectClock(action)}
         onOpenLeaveModal={handleLeaveRequest}
         onOpenOfficialModal={handleOfficialDutyRequest}
         onOpenConfigModal={() => setConfigModalOpen(true)}
@@ -662,7 +1062,7 @@ export default function App() {
         onOpenEditProfile={() => setEditProfileModalOpen(true)}
       />
 
-      {/* Main Layout (Margin for Sidebar on LG screens) */}
+      {/* Main Layout */}
       <div className="lg:pl-72 flex-1 flex flex-col min-w-0">
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-purple-100 px-4 sm:px-8 py-3.5 flex items-center justify-between">
@@ -732,7 +1132,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Admin Navigation Ribbon (แถบเมนูลัดเฉพาะผู้ดูแลระบบ - ไม่มีการลงเวลาปฏิบัติงาน) */}
+        {/* Admin Navigation Ribbon */}
         {currentUser.role === 'admin' && (
           <div className="bg-white border-b border-purple-100 px-4 sm:px-8 py-2.5 overflow-x-auto flex items-center gap-2 shadow-xs z-20">
             <button
@@ -803,13 +1203,13 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
-          {/* TEACHER HOME VIEW (Attendance Clocking Dashboard - For Teachers Only!) */}
+          {/* TEACHER HOME VIEW (Attendance Clocking Dashboard) */}
           {currentUser.role !== 'admin' && currentTab === 'home' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Clock & Teacher Profile Card */}
               <div className="lg:col-span-5 space-y-6">
                 <div className="bg-white rounded-[32px] overflow-hidden shadow-xl shadow-purple-950/5 border border-purple-100">
-                  {/* Digital Clock Banner with Pastel Purple Gradient */}
+                  {/* Digital Clock Banner */}
                   <div className="bg-gradient-to-br from-[#6D28D9] via-[#7C3AED] to-[#8B5CF6] p-8 text-white text-center relative overflow-hidden">
                     <div className="text-[11px] font-bold tracking-widest uppercase bg-white/20 text-purple-100 px-3 py-1 rounded-full border border-white/20 inline-block mb-3">
                       เวลาประเทศไทย (GMT+7)
@@ -823,7 +1223,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Profile info & Device MAC */}
+                  {/* Profile Info */}
                   <div className="p-6 text-center -mt-8 relative z-10">
                     <div className="relative inline-block mb-3">
                       <img
@@ -889,9 +1289,112 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right Column: 4 Action Cards & Attendance History */}
+              {/* Right Column: GPS Accuracy Status Indicator + 4 Action Cards + Recent History */}
               <div className="lg:col-span-7 space-y-6">
-                {/* 4 Action Cards Grid */}
+                {/* ========================================================================= */}
+                {/* 1. ตัวแสดงสถานะความแม่นยำของพิกัด GPS บนหน้าลงเวลา                           */}
+                {/* เปลี่ยนสีไอคอน MapPin ตามความแม่นยำ (สีเขียวเมื่อคลาดเคลื่อนต่ำกว่า 50 เมตร)     */}
+                {/* ========================================================================= */}
+                <div className="bg-white p-5 sm:p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* MapPin with dynamic accuracy-based color */}
+                      <div
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-xs ${
+                          gpsAccuracy === null
+                            ? 'bg-slate-100 text-slate-400'
+                            : gpsAccuracy < 50
+                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                            : gpsAccuracy <= 100
+                            ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                            : 'bg-rose-50 text-rose-600 border border-rose-200'
+                        }`}
+                      >
+                        <MapPin
+                          className={`w-6 h-6 transition-all ${
+                            gpsAccuracy === null
+                              ? 'text-slate-400 animate-pulse'
+                              : gpsAccuracy < 50
+                              ? 'text-emerald-500 scale-110 drop-shadow-sm'
+                              : gpsAccuracy <= 100
+                              ? 'text-amber-500'
+                              : 'text-rose-500'
+                          }`}
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-slate-800 text-sm sm:text-base">
+                            สถานะสัญญาณดาวเทียม GPS
+                          </h4>
+                          {/* Accuracy Badge */}
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors ${
+                              gpsAccuracy === null
+                                ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                : gpsAccuracy < 50
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : gpsAccuracy <= 100
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-rose-100 text-rose-800 border-rose-300'
+                            }`}
+                          >
+                            {gpsAccuracy === null
+                              ? 'กำลังค้นหาสัญญาณ...'
+                              : gpsAccuracy < 50
+                              ? `✓ แม่นยำสูง (คลาดเคลื่อน ±${gpsAccuracy} ม.)`
+                              : gpsAccuracy <= 100
+                              ? `แม่นยำปานกลาง (คลาดเคลื่อน ±${gpsAccuracy} ม.)`
+                              : `คลาดเคลื่อนสูง (±${gpsAccuracy} ม.)`}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                          {gpsCoords
+                            ? `พิกัดปัจจุบัน: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}`
+                            : 'กำลังเชื่อมต่อดาวเทียม GPS...'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={refreshGpsLocation}
+                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7C3AED] text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 border border-purple-200/70 shrink-0"
+                      title="รีเฟรชพิกัด GPS ใหม่"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${gpsLoading ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">รีเฟรชพิกัด</span>
+                    </button>
+                  </div>
+
+                  {/* Distance & School Zone Check */}
+                  <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
+                    <div className="text-slate-600 flex items-center gap-1.5">
+                      <span>ระยะห่างจากจุดโรงเรียน:</span>
+                      <span className="font-mono font-bold text-slate-900 text-sm">
+                        {gpsDistance !== null ? `${gpsDistance} เมตร` : '-'}
+                      </span>
+                      <span className="text-slate-400">(รัศมีที่อนุญาต {config.radius} เมตร)</span>
+                    </div>
+
+                    <div>
+                      {gpsDistance !== null && (
+                        gpsDistance <= (config.radius || 150) ? (
+                          <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-xs inline-flex items-center gap-1.5 border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> อยู่ในรัศมีโรงเรียน พร้อมลงเวลา
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-700 font-bold text-xs inline-flex items-center gap-1.5 border border-rose-200">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> อยู่นอกพื้นที่โรงเรียน ({gpsDistance} ม.)
+                          </span>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4 Action Cards Grid (Direct Clock In/Out without Face Scanner) */}
                 <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                     <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
@@ -900,10 +1403,14 @@ export default function App() {
                     <span className="text-xs text-slate-400 font-medium">{thaiDateString}</span>
                   </div>
 
-                  {/* 1. Check-In Button */}
+                  {/* 1. Check-In Button (Bluetooth MAC + GPS) */}
                   <div
-                    onClick={() => handleTriggerClock('IN')}
-                    className="p-5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-600 text-white flex items-center justify-between shadow-lg shadow-emerald-700/20 hover:scale-[1.01] hover:brightness-105 transition-all cursor-pointer group"
+                    onClick={() => handleDirectClock('IN')}
+                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
+                      todaySummary.leave || todaySummary.official
+                        ? 'bg-slate-300 opacity-60 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-600 shadow-emerald-700/20 hover:scale-[1.01] hover:brightness-105'
+                    }`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -911,24 +1418,38 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="text-base font-extrabold">ลงเวลามาปฏิบัติงาน (IN)</h4>
-                        <p className="text-xs text-emerald-100 font-medium">สแกนใบหน้า + พิกัดดาวเทียม</p>
+                        <p className="text-xs text-emerald-100 font-medium">
+                          Bluetooth MAC + พิกัดดาวเทียม GPS
+                        </p>
                       </div>
                     </div>
-                    <div
-                      className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
-                        todaySummary.in !== '--:--'
-                          ? 'bg-white text-emerald-700'
-                          : 'bg-white/20 text-white border border-white/30'
-                      }`}
-                    >
-                      {todaySummary.in}
+                    <div className="flex items-center gap-2">
+                      {todaySummary.leave || todaySummary.official ? (
+                        <span className="text-[11px] font-bold bg-black/20 text-white px-2.5 py-1 rounded-xl">
+                          ล็อก (แจ้งลาแล้ว)
+                        </span>
+                      ) : (
+                        <div
+                          className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
+                            todaySummary.in !== '--:--'
+                              ? 'bg-white text-emerald-700'
+                              : 'bg-white/20 text-white border border-white/30'
+                          }`}
+                        >
+                          {todaySummary.in}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* 2. Check-Out Button */}
+                  {/* 2. Check-Out Button (Bluetooth MAC + GPS) */}
                   <div
-                    onClick={() => handleTriggerClock('OUT')}
-                    className="p-5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-600 to-amber-600 text-white flex items-center justify-between shadow-lg shadow-amber-700/20 hover:scale-[1.01] hover:brightness-105 transition-all cursor-pointer group"
+                    onClick={() => handleDirectClock('OUT')}
+                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
+                      todaySummary.leave || todaySummary.official
+                        ? 'bg-slate-300 opacity-60 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-amber-500 via-orange-600 to-amber-600 shadow-amber-700/20 hover:scale-[1.01] hover:brightness-105'
+                    }`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -939,21 +1460,33 @@ export default function App() {
                         <p className="text-xs text-amber-100 font-medium">บันทึกเวลาสิ้นสุดงาน</p>
                       </div>
                     </div>
-                    <div
-                      className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
-                        todaySummary.out !== '--:--'
-                          ? 'bg-white text-amber-800'
-                          : 'bg-white/20 text-white border border-white/30'
-                      }`}
-                    >
-                      {todaySummary.out}
+                    <div className="flex items-center gap-2">
+                      {todaySummary.leave || todaySummary.official ? (
+                        <span className="text-[11px] font-bold bg-black/20 text-white px-2.5 py-1 rounded-xl">
+                          ล็อก (แจ้งลาแล้ว)
+                        </span>
+                      ) : (
+                        <div
+                          className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
+                            todaySummary.out !== '--:--'
+                              ? 'bg-white text-amber-800'
+                              : 'bg-white/20 text-white border border-white/30'
+                          }`}
+                        >
+                          {todaySummary.out}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* 3. Leave Request Button */}
+                  {/* 3. Leave Request Button (Locked if Clocked-in today!) */}
                   <div
                     onClick={handleLeaveRequest}
-                    className="p-5 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-sky-600 text-white flex items-center justify-between shadow-lg shadow-blue-700/20 hover:scale-[1.01] hover:brightness-105 transition-all cursor-pointer group"
+                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
+                      todaySummary.in !== '--:--' || todaySummary.out !== '--:--'
+                        ? 'bg-slate-400/80 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-sky-500 via-blue-600 to-sky-600 shadow-blue-700/20 hover:scale-[1.01] hover:brightness-105'
+                    }`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -961,24 +1494,40 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="text-base font-extrabold">แจ้งลาหยุด (LEAVE)</h4>
-                        <p className="text-xs text-sky-100 font-medium">ลาป่วย / ลากิจ / ลาพักผ่อน</p>
+                        <p className="text-xs text-sky-100 font-medium">
+                          {todaySummary.in !== '--:--'
+                            ? 'ล็อก: วันนี้ลงเวลาแล้ว ไม่สามารถลาได้'
+                            : 'ลาป่วย / ลากิจ / ลาพักผ่อน'}
+                        </p>
                       </div>
                     </div>
-                    <div
-                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
-                        todaySummary.leave
-                          ? 'bg-white text-sky-700'
-                          : 'bg-white/20 text-white border border-white/30'
-                      }`}
-                    >
-                      {todaySummary.leave ? todaySummary.leave.split(' ')[0] : 'แจ้งลา'}
+                    <div>
+                      {todaySummary.in !== '--:--' ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-black/25 text-white text-[11px] font-bold">
+                          ล็อกแล้ว
+                        </span>
+                      ) : (
+                        <div
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
+                            todaySummary.leave
+                              ? 'bg-white text-sky-700'
+                              : 'bg-white/20 text-white border border-white/30'
+                          }`}
+                        >
+                          {todaySummary.leave ? todaySummary.leave.split(' ')[0] : 'แจ้งลา'}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* 4. Official Duty Button */}
+                  {/* 4. Official Duty Button (Locked if Clocked-in today!) */}
                   <div
                     onClick={handleOfficialDutyRequest}
-                    className="p-5 rounded-2xl bg-gradient-to-r from-purple-500 via-violet-700 to-purple-600 text-white flex items-center justify-between shadow-lg shadow-purple-700/20 hover:scale-[1.01] hover:brightness-105 transition-all cursor-pointer group"
+                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
+                      todaySummary.in !== '--:--' || todaySummary.out !== '--:--'
+                        ? 'bg-slate-400/80 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-purple-500 via-violet-700 to-purple-600 shadow-purple-700/20 hover:scale-[1.01] hover:brightness-105'
+                    }`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
@@ -986,17 +1535,29 @@ export default function App() {
                       </div>
                       <div>
                         <h4 className="text-base font-extrabold">ไปราชการ (OFFICIAL)</h4>
-                        <p className="text-xs text-purple-100 font-medium">ปฏิบัติงานนอกสถานที่ / อบรม</p>
+                        <p className="text-xs text-purple-100 font-medium">
+                          {todaySummary.in !== '--:--'
+                            ? 'ล็อก: วันนี้ลงเวลาแล้ว ไม่สามารถไปราชการได้'
+                            : 'ปฏิบัติงานนอกสถานที่ / อบรม'}
+                        </p>
                       </div>
                     </div>
-                    <div
-                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
-                        todaySummary.official
-                          ? 'bg-white text-purple-800'
-                          : 'bg-white/20 text-white border border-white/30'
-                      }`}
-                    >
-                      {todaySummary.official ? 'บันทึกแล้ว' : 'บันทึก'}
+                    <div>
+                      {todaySummary.in !== '--:--' ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-black/25 text-white text-[11px] font-bold">
+                          ล็อกแล้ว
+                        </span>
+                      ) : (
+                        <div
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
+                            todaySummary.official
+                              ? 'bg-white text-purple-800'
+                              : 'bg-white/20 text-white border border-white/30'
+                          }`}
+                        >
+                          {todaySummary.official ? 'บันทึกแล้ว' : 'บันทึก'}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1078,7 +1639,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ADMIN MANAGEMENT DASHBOARD (ผู้ดูแลระบบเท่านั้น - ไม่มีการลงเวลาปฏิบัติงาน) */}
+          {/* ADMIN MANAGEMENT DASHBOARD */}
           {currentUser.role === 'admin' && (
             <AdminReports
               config={config}
@@ -1098,17 +1659,7 @@ export default function App() {
       </div>
 
       {/* MODALS */}
-      {/* 1. Biometric Face Scanner Modal (Teachers only) */}
-      <FaceScannerModal
-        actionType={faceActionType}
-        user={currentUser}
-        config={config}
-        isOpen={faceModalOpen}
-        onClose={() => setFaceModalOpen(false)}
-        onSuccess={handleFaceSuccess}
-      />
-
-      {/* 2. Edit Profile Modal */}
+      {/* 1. Edit Profile Modal */}
       {editProfileModalOpen && (
         <EditProfileModal
           user={currentUser}
@@ -1121,7 +1672,7 @@ export default function App() {
         />
       )}
 
-      {/* 3. Admin Config Modal */}
+      {/* 2. Admin Config Modal */}
       {configModalOpen && (
         <AdminConfigModal
           config={config}
@@ -1131,7 +1682,7 @@ export default function App() {
         />
       )}
 
-      {/* 4. Admin Users Modal */}
+      {/* 3. Admin Users Modal */}
       {usersModalOpen && (
         <AdminUsersModal
           isOpen={usersModalOpen}
@@ -1141,7 +1692,7 @@ export default function App() {
         />
       )}
 
-      {/* 5. Register Modal */}
+      {/* 4. Register Modal */}
       {registerModalOpen && (
         <RegisterModal
           isOpen={registerModalOpen}

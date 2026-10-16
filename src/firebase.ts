@@ -91,7 +91,8 @@ export const DEFAULT_CONFIG: SchoolConfig = {
   earlyTime: "16:30",
   centerLat: 17.413840,
   centerLng: 102.787260,
-  radius: 150
+  radius: 150,
+  adminPin: "000000"
 };
 
 // ==================== CONFIG SERVICES ====================
@@ -100,7 +101,7 @@ export async function getSchoolConfig(): Promise<SchoolConfig> {
   try {
     const snap = await getDoc(doc(db, 'config', 'school_main'));
     if (snap.exists()) {
-      return { id: snap.id, ...snap.data() } as SchoolConfig;
+      return { id: snap.id, ...DEFAULT_CONFIG, ...snap.data() } as SchoolConfig;
     }
     // Initialize default if not exist
     await setDoc(doc(db, 'config', 'school_main'), DEFAULT_CONFIG);
@@ -145,7 +146,7 @@ export async function findUserByUsername(username: string): Promise<UserAccount 
 
 export async function checkBluetoothMacRegistered(
   macAddress: string,
-  excludeUsername?: string
+  excludeUserId?: string
 ): Promise<{ isDuplicate: boolean; existingUser?: { username: string; fullname: string; role: string } }> {
   if (!macAddress) return { isDuplicate: false };
   const cleanTarget = macAddress.trim().toUpperCase();
@@ -154,7 +155,7 @@ export async function checkBluetoothMacRegistered(
     const snap = await getDocs(collection(db, 'users'));
     for (const d of snap.docs) {
       const data = d.data() as UserAccount;
-      if (excludeUsername && (data.username === excludeUsername || d.id === excludeUsername)) {
+      if (excludeUserId && (data.username === excludeUserId || d.id === excludeUserId)) {
         continue;
       }
       const userMac = (data.registeredMac || '').trim().toUpperCase();
@@ -177,36 +178,33 @@ export async function checkBluetoothMacRegistered(
 }
 
 export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promise<{ ok: boolean; message: string; status?: 'ACTIVE' | 'PENDING' | 'INACTIVE' }> {
-  const path = `users/${userData.username}`;
+  const userIdentifier = userData.username?.trim() || `teacher_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const path = `users/${userIdentifier}`;
   try {
-    const existing = await findUserByUsername(userData.username);
-    if (existing) {
-      return { ok: false, message: 'ชื่อผู้ใช้งาน (Username) นี้มีอยู่ในระบบแล้ว' };
-    }
-
     // Check duplicate Bluetooth MAC address
     if (userData.registeredMac) {
-      const macCheck = await checkBluetoothMacRegistered(userData.registeredMac, userData.username);
+      const macCheck = await checkBluetoothMacRegistered(userData.registeredMac, userIdentifier);
       if (macCheck.isDuplicate) {
         return {
           ok: false,
-          message: `อุปกรณ์นี้ (Bluetooth MAC: ${userData.registeredMac}) ได้ลงทะเบียนในระบบแล้ว โดยคุณ "${macCheck.existingUser?.fullname || ''}" (@${macCheck.existingUser?.username || ''}) ไม่อนุญาตให้ลงทะเบียนซ้ำจากเครื่องเดียวกัน`
+          message: `อุปกรณ์นี้ (Bluetooth MAC: ${userData.registeredMac}) ได้ลงทะเบียนในระบบแล้ว โดยคุณ "${macCheck.existingUser?.fullname || ''}" ไม่อนุญาตให้ลงทะเบียนซ้ำจากเครื่องเดียวกัน`
         };
       }
     }
 
     const initialStatus = userData.status || (userData.role === 'admin' ? 'ACTIVE' : 'PENDING');
 
-    const newDocRef = doc(db, 'users', userData.username);
+    const newDocRef = doc(db, 'users', userIdentifier);
     await setDoc(newDocRef, {
       ...userData,
+      username: userIdentifier,
       status: initialStatus,
       createdAt: new Date().toISOString()
     });
 
     const statusNote = initialStatus === 'PENDING' ? '(รอผู้ดูแลระบบอนุมัติ)' : '(เปิดใช้งานทันที)';
     await writeSystemLog(
-      userData.username,
+      userIdentifier,
       'REGISTER',
       `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} ${statusNote} [Bluetooth MAC: ${userData.registeredMac || 'N/A'}]`
     );

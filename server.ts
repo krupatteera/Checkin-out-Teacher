@@ -245,6 +245,121 @@ Respond strictly in JSON matching the schema.`;
     }
   });
 
+  // AI Face Identification Endpoint (Face Login for Teachers)
+  app.post('/api/ai/identify-face', async (req, res) => {
+    try {
+      const { scannedImageBase64, candidates } = req.body || {};
+      if (!scannedImageBase64) {
+        return res.status(400).json({ error: 'Missing scannedImageBase64' });
+      }
+
+      if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
+        return res.json({
+          matchedUserId: null,
+          confidenceScore: 0,
+          analysis: 'ไม่พบรายชื่อครูในระบบสำหรับเปรียบเทียบ',
+        });
+      }
+
+      // Filter candidates with valid images
+      const validCandidates = candidates.filter((c: any) => c && c.id && c.img);
+      if (validCandidates.length === 0) {
+        return res.json({
+          matchedUserId: null,
+          confidenceScore: 0,
+          analysis: 'ไม่พบรูปภาพใบหน้าของครูในระบบ',
+        });
+      }
+
+      const matchScan = scannedImageBase64.match(/^data:([^;]+);base64,(.+)$/);
+      const mimeScan = matchScan ? matchScan[1] : 'image/jpeg';
+      const dataScan = matchScan ? matchScan[2] : scannedImageBase64;
+
+      if (!ai) {
+        // Fallback if no Gemini API key: client will handle comparison
+        return res.json({
+          matchedUserId: null,
+          confidenceScore: 0,
+          analysis: 'Server AI not available, client fallback will run',
+        });
+      }
+
+      // Prepare Gemini multimodal contents with Scanned image and Candidates
+      const parts: any[] = [
+        { text: 'Live Scanned Face to Identify:' },
+        {
+          inlineData: {
+            mimeType: mimeScan,
+            data: dataScan,
+          },
+        },
+      ];
+
+      // Attach candidates (up to top 15 to stay within single prompt limits)
+      const subset = validCandidates.slice(0, 15);
+      subset.forEach((cand: any, idx: number) => {
+        const m = (cand.img || '').match(/^data:([^;]+);base64,(.+)$/);
+        const mime = m ? m[1] : 'image/jpeg';
+        const d = m ? m[2] : cand.img;
+        if (d) {
+          parts.push({
+            text: `Candidate #${idx + 1} - UserID: "${cand.id}" - Name: "${cand.fullname || ''}":`,
+          });
+          parts.push({
+            inlineData: {
+              mimeType: mime,
+              data: d,
+            },
+          });
+        }
+      });
+
+      const prompt = `You are a biometric facial recognition identification engine for a school.
+Your task: Match the "Live Scanned Face" against the candidate faces.
+CRITICAL INSTRUCTIONS:
+1. Examine ONLY the facial biometrics (facial geometry, eye-spacing, nose bridge, jawline, mouth structure).
+2. COMPLETELY DISREGARD BACKGROUNDS, rooms, wall colors, lighting conditions, and clothing.
+3. If the person in "Live Scanned Face" matches one of the candidate faces with high confidence, set matchedUserId to that candidate's UserID (as a string), and confidenceScore between 80 and 99.
+4. If no face is visible, or the face does not match any candidate with high confidence, set matchedUserId to null and confidenceScore to a low number (below 50).
+5. Provide a friendly Thai description in analysis.`;
+
+      parts.push({ text: prompt });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: [
+          {
+            role: 'user',
+            parts,
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              matchedUserId: { type: Type.STRING, nullable: true },
+              confidenceScore: { type: Type.NUMBER },
+              analysis: { type: Type.STRING },
+            },
+            required: ['confidenceScore', 'analysis'],
+          },
+        },
+      });
+
+      const text = response.text || '{}';
+      const parsed = JSON.parse(text);
+      return res.json(parsed);
+    } catch (error) {
+      console.error('Error in /api/ai/identify-face:', error);
+      return res.json({
+        matchedUserId: null,
+        confidenceScore: 0,
+        analysis: 'ระบบตรวจสอบผ่าน AI ภายนอกขัดข้อง กำลังใช้การเปรียบเทียบในเครื่อง',
+      });
+    }
+  });
+
   // Mount Vite middleware in development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

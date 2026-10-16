@@ -125,7 +125,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     : [
         {
           id: 'in',
-          name: 'สแกนเข้างาน',
+          name: 'ลงเวลาเข้างาน',
           desc: 'Check-In',
           gradient: 'from-[#10B981] to-[#047857]',
           icon: Clock,
@@ -136,7 +136,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         },
         {
           id: 'out',
-          name: 'สแกนกลับ',
+          name: 'ลงเวลากลับ',
           desc: 'Check-Out',
           gradient: 'from-[#F59E0B] to-[#D97706]',
           icon: LogOut,
@@ -252,14 +252,14 @@ export const Navigation: React.FC<NavigationProps> = ({
                   >
                     <div className="flex items-center gap-2.5">
                       <Clock className="w-4 h-4 transition-transform group-hover:scale-110" />
-                      <span>ลงเวลาปฏิบัติงาน (สแกนเข้า-ออก)</span>
+                      <span>ลงเวลาปฏิบัติงาน (GPS & Bluetooth)</span>
                     </div>
                     <span
                       className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                         currentTab === 'home' ? 'bg-white/25 text-white' : 'bg-purple-100 text-purple-800'
                       }`}
                     >
-                      สแกนใบหน้า
+                      GPS + MAC
                     </span>
                   </button>
                 </li>
@@ -511,7 +511,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               <div className="w-10 h-10 -mt-5 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shadow-lg shadow-emerald-700/30">
                 <Clock className="w-5 h-5" />
               </div>
-              <span className="text-[9px] font-bold mt-1 text-emerald-700">สแกนเข้า</span>
+              <span className="text-[9px] font-bold mt-1 text-emerald-700">ลงเวลาเข้า</span>
             </button>
 
             <button
@@ -521,7 +521,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               <div className="w-10 h-10 -mt-5 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-700/30">
                 <LogOut className="w-5 h-5" />
               </div>
-              <span className="text-[9px] font-bold mt-1 text-amber-700">สแกนกลับ</span>
+              <span className="text-[9px] font-bold mt-1 text-amber-700">ลงเวลากลับ</span>
             </button>
 
             <button

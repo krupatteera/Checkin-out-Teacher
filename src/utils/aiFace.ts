@@ -389,3 +389,99 @@ async function compareFacesClientSide(
     imgScan.src = scannedBase64;
   });
 }
+
+export interface FaceLoginMatchResult {
+  matchedUser: import('../types').UserAccount | null;
+  confidenceScore: number;
+  analysis: string;
+}
+
+/**
+ * Scan face to automatically identify and log in registered teacher (Face ID Login)
+ */
+export async function identifyUserByFace(
+  scannedBase64: string,
+  candidates: import('../types').UserAccount[]
+): Promise<FaceLoginMatchResult> {
+  const usersWithFace = candidates.filter((u) => Boolean(u.img && u.img.length > 50));
+  if (usersWithFace.length === 0) {
+    return {
+      matchedUser: null,
+      confidenceScore: 0,
+      analysis: 'ไม่พบฐานข้อมูลใบหน้าครูในระบบ กรุณาลงทะเบียนก่อน'
+    };
+  }
+
+  // 1. Try batch identification via /api/ai/identify-face
+  try {
+    const compScanned = await compressImageBase64(scannedBase64, 400, 400, 0.82);
+    const candidatePayload = usersWithFace.slice(0, 15).map((u) => ({
+      id: u.id,
+      fullname: u.fullname,
+      img: u.img
+    }));
+
+    const apiRes = await fetch('/api/ai/identify-face', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scannedImageBase64: compScanned,
+        candidates: candidatePayload
+      })
+    });
+
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      if (data && data.matchedUserId && data.confidenceScore >= 70) {
+        const found = usersWithFace.find((u) => u.id === data.matchedUserId);
+        if (found) {
+          return {
+            matchedUser: found,
+            confidenceScore: data.confidenceScore,
+            analysis: data.analysis || `ยืนยันตัวตนสำเร็จ: ${found.fullname}`
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Batch identify-face endpoint error, falling back to local/individual verify:', err);
+  }
+
+  // 2. Fallback: Check each candidate
+  let bestUser: import('../types').UserAccount | null = null;
+  let highestScore = 0;
+  let bestAnalysis = '';
+
+  for (const candidate of usersWithFace) {
+    try {
+      const res = await verifyFaceForAttendance(candidate.img!, scannedBase64, {
+        username: candidate.username || candidate.id,
+        fullname: candidate.fullname
+      });
+      if (res.isMatch && res.confidenceScore > highestScore) {
+        highestScore = res.confidenceScore;
+        bestUser = candidate;
+        bestAnalysis = res.analysis;
+      }
+    } catch {
+      // Continue next candidate
+    }
+  }
+
+  if (bestUser && highestScore >= 70) {
+    return {
+      matchedUser: bestUser,
+      confidenceScore: highestScore,
+      analysis: bestAnalysis || `เข้าสู่ระบบสำเร็จ: คุณ ${bestUser.fullname}`
+    };
+  }
+
+  return {
+    matchedUser: null,
+    confidenceScore: highestScore,
+    analysis: highestScore > 30
+      ? `ยังไม่ตรงกับฐานข้อมูล (${highestScore}%) กรุณาจัดใบหน้าให้อยู่ตรงกลางกรอบ`
+      : 'จัดใบหน้าให้อยู่ในกรอบวงรีเพื่อเข้าสู่ระบบ'
+  };
+}
+

@@ -98,7 +98,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   const fetchUsers = async () => {
     try {
       const users = await getAllUsersList();
-      setAllUsers(users.map((u) => ({ id: u.username, name: u.fullname, img: u.img })));
+      setAllUsers(users.map((u) => ({ id: u.username || u.id, name: u.fullname, img: u.img })));
     } catch (e) {
       console.error(e);
     }
@@ -580,11 +580,168 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
             </div>
           </div>
 
+          {/* ========================================================================= */}
+          {/* ส่วนสรุปรายงาน 'มาสาย' หรือ 'กลับก่อนเวลา' ของแต่ละคนแบบตารางสรุปรายวัน      */}
+          {/* ========================================================================= */}
+          {(() => {
+            const irregularList = dailyList.filter((u) => u.isLate || u.isEarly);
+
+            return (
+              <div className="bg-white rounded-3xl border border-rose-200/80 shadow-md overflow-hidden">
+                <div className="p-5 bg-gradient-to-r from-rose-50 via-amber-50 to-purple-50 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[11px] font-bold mb-1 border border-rose-200">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600" /> ตรวจสอบการลงเวลาที่ไม่เป็นไปตามกำหนดเวลา
+                    </div>
+                    <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                      สรุปรายงานผู้มาสาย และ กลับก่อนเวลารายวัน
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      เกณฑ์เวลา: เข้าสายหลัง <span className="font-mono font-bold text-rose-600">{config.lateTime || '08:30'} น.</span> | กลับก่อนเวลาก่อน <span className="font-mono font-bold text-amber-600">{config.earlyTime || '16:30'} น.</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 shadow-2xs">
+                      พบ {irregularList.length} รายการ
+                    </span>
+                    {irregularList.length > 0 && (
+                      <button
+                        onClick={() => printReport('รายงานผู้มาสายและกลับก่อนเวลาประจำวัน', 'irregularAttendanceTable')}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <Printer className="w-3.5 h-3.5" /> พิมพ์สรุป (A4)
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 sm:p-5">
+                  {irregularList.length === 0 ? (
+                    <div className="py-8 px-4 text-center bg-emerald-50/70 rounded-2xl border border-emerald-200/80">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+                      <h4 className="font-bold text-sm text-emerald-900">
+                        ยอดเยี่ยม! วันที่ {selectedDate} ไม่มีผู้ลงเวลามาสายหรือกลับก่อนเวลา
+                      </h4>
+                      <p className="text-xs text-emerald-700 mt-1">
+                        ครูและบุคลากรทุกคนลงเวลาปฏิบัติงานถูกต้องตามเกณฑ์เวลาของโรงเรียน
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-rose-100 shadow-2xs">
+                      <table id="irregularAttendanceTable" className="w-full text-xs text-left text-slate-700">
+                        <thead className="bg-rose-50/60 text-slate-700 uppercase font-bold text-[10px] tracking-wider border-b border-rose-100">
+                          <tr>
+                            <th className="px-4 py-3 text-center">ลำดับ</th>
+                            <th className="px-4 py-3">ครู / บุคลากร</th>
+                            <th className="px-4 py-3">เวลามา (IN)</th>
+                            <th className="px-4 py-3">เวลากลับ (OUT)</th>
+                            <th className="px-4 py-3 text-center">สถานะความผิดปกติ</th>
+                            <th className="px-4 py-3">ระยะห่าง / พิกัด</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-rose-50">
+                          {irregularList.map((item, idx) => {
+                            const isLate = item.isLate;
+                            const isEarly = item.isEarly;
+
+                            return (
+                              <tr key={item.userId} className="hover:bg-rose-50/30 transition-colors">
+                                <td className="px-4 py-3 text-center font-bold text-slate-400 font-mono">
+                                  {idx + 1}
+                                </td>
+                                <td className="px-4 py-3 flex items-center gap-2.5">
+                                  <img
+                                    src={
+                                      item.img ||
+                                      `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                        item.name
+                                      )}&background=8B5CF6&color=fff`
+                                    }
+                                    alt={item.name}
+                                    className="w-8 h-8 rounded-full object-cover border border-purple-200 shrink-0"
+                                  />
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-sm">{item.name}</div>
+                                    <div className="text-[11px] text-slate-400 font-mono">@{item.userId}</div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-mono">
+                                  {item.timeIn !== '-' ? (
+                                    <span
+                                      className={`px-2.5 py-1 rounded-lg font-bold text-xs inline-flex items-center gap-1.5 ${
+                                        isLate
+                                          ? 'bg-rose-100 text-rose-700 border border-rose-300 font-extrabold'
+                                          : 'bg-slate-100 text-slate-600'
+                                      }`}
+                                    >
+                                      <Clock className="w-3.5 h-3.5" />
+                                      <span>{item.timeIn} น.</span>
+                                      {isLate && <span className="text-[10px] text-rose-800 font-bold">(สาย)</span>}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 font-mono">
+                                  {item.timeOut !== '-' ? (
+                                    <span
+                                      className={`px-2.5 py-1 rounded-lg font-bold text-xs inline-flex items-center gap-1.5 ${
+                                        isEarly
+                                          ? 'bg-amber-100 text-amber-800 border border-amber-300 font-extrabold'
+                                          : 'bg-slate-100 text-slate-600'
+                                      }`}
+                                    >
+                                      <LogOut className="w-3.5 h-3.5" />
+                                      <span>{item.timeOut} น.</span>
+                                      {isEarly && <span className="text-[10px] text-amber-900 font-bold">(กลับก่อน)</span>}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {isLate && isEarly ? (
+                                    <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-rose-500 to-amber-500 text-white font-extrabold text-[10px] shadow-2xs">
+                                      ทั้งมาสาย และ กลับก่อนเวลา
+                                    </span>
+                                  ) : isLate ? (
+                                    <span className="px-2.5 py-1 rounded-full bg-rose-500 text-white font-bold text-[10px] shadow-2xs">
+                                      มาสาย (หลัง {config.lateTime} น.)
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-1 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-2xs">
+                                      กลับก่อนเวลา (ก่อน {config.earlyTime} น.)
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600 text-[11px]">
+                                  {item.distance !== undefined ? (
+                                    <div className="flex items-center gap-1 text-slate-600">
+                                      <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                      <span>ห่างจุด ร.ร. <b>{item.distance}</b> ม.</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Daily Table */}
           <div className="bg-white rounded-3xl border border-purple-100 shadow-sm overflow-hidden">
             <div className="p-5 border-b border-purple-50 flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <Users className="w-4 h-4 text-[#7C3AED]" /> รายชื่อครูผู้ลงเวลาประจำวัน
+                <Users className="w-4 h-4 text-[#7C3AED]" /> รายชื่อครูผู้ลงเวลาประจำวัน (ทั้งหมด)
               </h3>
               <button
                 onClick={() => printReport('รายงานการลงเวลาประจำวัน', 'dailyAttendanceTable')}
