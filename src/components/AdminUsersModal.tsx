@@ -241,7 +241,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
             <div>
               <h3 className="font-bold text-lg">จัดการรายชื่อครูและบุคลากร</h3>
               <p className="text-xs text-purple-100">
-                อนุมัติสมาชิกใหม่ • ตรวจสอบ Bluetooth MAC & ชีวภาพใบหน้า AI
+                อนุมัติสมาชิกใหม่ &bull; จัดการ User & Password และ Bluetooth MAC
               </p>
             </div>
           </div>
@@ -361,7 +361,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                 <thead className="bg-purple-50/70 text-slate-600 font-bold border-b border-purple-100 uppercase text-[11px] tracking-wider">
                   <tr>
                     <th className="px-4 py-3">ครู / บุคลากร</th>
-                    <th className="px-4 py-3">ภาพใบหน้า AI</th>
+                    <th className="px-4 py-3">User & Password</th>
                     <th className="px-4 py-3">ตำแหน่ง / สาระ</th>
                     <th className="px-4 py-3">สถานะ</th>
                     <th className="px-4 py-3">
@@ -384,36 +384,34 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                           isPending ? 'bg-amber-50/30' : ''
                         }`}
                       >
-                        {/* Name */}
+                        {/* Name and Avatar */}
                         <td className="px-4 py-3">
-                          <div className="font-bold text-slate-900">{u.fullname}</div>
-                          {u.phone && (
-                            <div className="text-[10px] text-slate-400 mt-0.5">โทร: {u.phone}</div>
-                          )}
-                        </td>
-
-                        {/* Face Snapshot & Biometrics badge */}
-                        <td className="px-4 py-3">
-                          {u.img ? (
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={u.img}
-                                alt={u.fullname}
-                                className="w-10 h-10 rounded-xl object-cover border border-purple-200 shadow-xs"
-                              />
-                              {u.faceBiometrics && (
-                                <div>
-                                  <div className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3" /> {u.faceBiometrics.confidence}%
-                                  </div>
-                                  <div className="text-[9px] text-slate-400">
-                                    {u.faceBiometrics.quality}
-                                  </div>
-                                </div>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl overflow-hidden bg-purple-100 border border-purple-200 shrink-0 flex items-center justify-center">
+                              {u.img ? (
+                                <img src={u.img} alt={u.fullname} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs font-bold text-[#7C3AED]">{u.fullname.slice(0, 1)}</span>
                               )}
                             </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-[11px]">ไม่มีภาพ</span>
+                            <div>
+                              <div className="font-bold text-slate-900">{u.fullname}</div>
+                              {u.phone && (
+                                <div className="text-[10px] text-slate-400">โทร: {u.phone}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Username & Password */}
+                        <td className="px-4 py-3">
+                          <div className="font-mono font-bold text-[#7C3AED] bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100 w-fit text-xs">
+                            @{u.username || u.id}
+                          </div>
+                          {u.password && (
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              Pass: <span className="text-slate-800 font-semibold">{u.password}</span>
+                            </div>
                           )}
                         </td>
 
@@ -556,7 +554,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-3 border-b border-purple-100">
                 <h4 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                  <UserCheck className="w-5 h-5 text-[#7C3AED]" /> ข้อมูลครูและชีวภาพใบหน้า AI
+                  <UserCheck className="w-5 h-5 text-[#7C3AED]" /> ข้อมูลบัญชีครูและบุคลากร
                 </h4>
                 <button
                   onClick={() => setSelectedUserForDetail(null)}
@@ -614,6 +612,24 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                   )}
                 </div>
 
+                {/* Account Credentials Card (User & Password) */}
+                <div className="w-full mt-3 p-3 bg-purple-50/70 rounded-2xl border border-purple-200 text-xs">
+                  <div className="flex items-center gap-2 font-bold text-slate-800 mb-1">
+                    <KeyRound className="w-4 h-4 text-[#7C3AED]" />
+                    <span>ข้อมูลเข้าสู่ระบบ (User & Password)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="p-2.5 bg-white rounded-xl border border-purple-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-400 block font-medium">ชื่อผู้ใช้งาน (Username)</span>
+                      <span className="font-bold text-purple-900 font-mono text-xs">@{selectedUserForDetail.username || selectedUserForDetail.id}</span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded-xl border border-purple-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-400 block font-medium">รหัสผ่าน (Password)</span>
+                      <span className="font-bold text-slate-800 font-mono text-xs">{selectedUserForDetail.password || 'ไม่ได้กำหนด'}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Bluetooth Device MAC Address Card */}
                 <div className="w-full mt-3 p-3 bg-purple-50/60 rounded-2xl border border-purple-200 text-xs flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -646,24 +662,6 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                     </button>
                   )}
                 </div>
-
-                {/* AI Biometrics Card */}
-                {selectedUserForDetail.faceBiometrics && (
-                  <div className="w-full mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1 text-slate-700">
-                    <div className="flex items-center justify-between font-bold text-[#7C3AED]">
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5" /> ฐานข้อมูลชีวภาพใบหน้า AI
-                      </span>
-                      <span className="text-[10px] bg-purple-100 text-purple-900 px-2 py-0.5 rounded-full">
-                        ความมั่นใจ {selectedUserForDetail.faceBiometrics.confidence}%
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-relaxed pt-0.5">
-                      {selectedUserForDetail.faceBiometrics.aiSummary ||
-                        selectedUserForDetail.faceBiometrics.descriptor}
-                    </p>
-                  </div>
-                )}
 
                 {/* Action buttons in detail modal */}
                 <div className="w-full mt-4 flex items-center gap-2">

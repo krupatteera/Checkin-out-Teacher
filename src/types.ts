@@ -3,6 +3,7 @@ export interface SchoolConfig {
   orgName: string;
   orgAffiliation: string;
   logoUrl?: string;
+  academicYear?: string; // e.g. "2569"
   lateTime: string; // e.g. "08:30"
   earlyTime: string; // e.g. "16:30"
   centerLat: number;

@@ -87,6 +87,7 @@ export const DEFAULT_CONFIG: SchoolConfig = {
   orgName: "โรงเรียนอนุบาลศรีสุทโธ",
   orgAffiliation: "สพป.อุดรธานี เขต 3",
   logoUrl: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=160&q=80",
+  academicYear: "2569",
   lateTime: "08:30",
   earlyTime: "16:30",
   centerLat: 17.413840,
@@ -177,10 +178,55 @@ export async function checkBluetoothMacRegistered(
   }
 }
 
+export async function authenticateTeacherUser(
+  username: string,
+  password: string
+): Promise<{ ok: boolean; user?: UserAccount; message: string }> {
+  const cleanUser = (username || '').trim();
+  const cleanPass = (password || '').trim();
+
+  if (!cleanUser || !cleanPass) {
+    return { ok: false, message: 'กรุณากรอกชื่อผู้ใช้งานและรหัสผ่านให้ครบถ้วน' };
+  }
+
+  const user = await findUserByUsername(cleanUser);
+  if (!user) {
+    return { ok: false, message: 'ไม่พบชื่อผู้ใช้งานนี้ในระบบ กรุณาตรวจสอบหรือลงทะเบียนใหม่' };
+  }
+
+  if (user.password && user.password !== cleanPass) {
+    return { ok: false, message: 'รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง' };
+  }
+
+  if (user.status === 'PENDING') {
+    return {
+      ok: false,
+      message: 'บัญชีอยู่ระหว่างรอผู้ดูแลระบบอนุมัติ กรุณาแจ้งผู้ดูแลระบบเพื่อเปิดใช้งานก่อนเข้าสู่ระบบ'
+    };
+  }
+
+  if (user.status === 'INACTIVE') {
+    return { ok: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' };
+  }
+
+  return { ok: true, user, message: 'เข้าสู่ระบบสำเร็จ' };
+}
+
 export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promise<{ ok: boolean; message: string; status?: 'ACTIVE' | 'PENDING' | 'INACTIVE' }> {
   const userIdentifier = userData.username?.trim() || `teacher_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   const path = `users/${userIdentifier}`;
   try {
+    // Check duplicate username if username was provided
+    if (userData.username) {
+      const existingUser = await findUserByUsername(userData.username.trim());
+      if (existingUser) {
+        return {
+          ok: false,
+          message: `ชื่อผู้ใช้งาน "${userData.username.trim()}" ถูกใช้งานแล้ว กรุณาเลือกชื่อผู้ใช้งานอื่น`
+        };
+      }
+    }
+
     // Check duplicate Bluetooth MAC address
     if (userData.registeredMac) {
       const macCheck = await checkBluetoothMacRegistered(userData.registeredMac, userIdentifier);
@@ -206,11 +252,11 @@ export async function registerNewUser(userData: Omit<UserAccount, 'id'>): Promis
     await writeSystemLog(
       userIdentifier,
       'REGISTER',
-      `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} ${statusNote} [Bluetooth MAC: ${userData.registeredMac || 'N/A'}]`
+      `ลงทะเบียนสมาชิกใหม่: ${userData.fullname} (@${userIdentifier}) ${statusNote} [Bluetooth MAC: ${userData.registeredMac || 'N/A'}]`
     );
 
     const message = initialStatus === 'PENDING'
-      ? 'ลงทะเบียนและบันทึกฐานข้อมูลใบหน้าสำเร็จ! กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติการใช้งานก่อนเข้าสู่ระบบ'
+      ? 'ลงทะเบียนสมาชิกเรียบร้อยแล้ว! กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติการใช้งานก่อนเข้าสู่ระบบ'
       : 'ลงทะเบียนสมาชิกสำเร็จ! สามารถเข้าสู่ระบบได้ทันที';
 
     return { ok: true, message, status: initialStatus };

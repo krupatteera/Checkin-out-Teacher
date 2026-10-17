@@ -1,10 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   UserPlus,
-  Camera,
   X,
-  ShieldCheck,
-  Sparkles,
   Loader2,
   Phone,
   Briefcase,
@@ -13,17 +10,18 @@ import {
   KeyRound,
   CheckCircle2,
   AlertCircle,
-  ScanLine,
-  RefreshCw,
-  Upload,
   Bluetooth,
-  Lock
+  Lock,
+  Eye,
+  EyeOff,
+  Upload,
+  Camera,
+  RefreshCw
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { getOrGenerateBluetoothMac, getDeviceInfoLabel } from '../utils/deviceMac';
-import { registerNewUser, checkBluetoothMacRegistered } from '../firebase';
+import { registerNewUser, checkBluetoothMacRegistered, findUserByUsername } from '../firebase';
 import { Swal } from '../utils/sweetAlert';
-import { analyzeFaceForRegistration, FaceAnalysisResult } from '../utils/aiFace';
 import { compressImageBase64 } from '../utils/imageUtils';
 
 interface RegisterModalProps {
@@ -43,7 +41,11 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     existingUser?: { username: string; fullname: string; role: string };
   }>({ isDuplicate: false });
 
+  // Form Fields: Username, Password, Profile
   const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+    confirmPassword: '',
     fullname: '',
     position: '',
     department: '',
@@ -51,17 +53,9 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     role: 'teacher' as 'admin' | 'teacher'
   });
 
-  // Face capture state
-  const [captureMode, setCaptureMode] = useState<'camera' | 'upload'>('camera');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [previewImg, setPreviewImg] = useState<string>('');
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isAnalyzingFace, setIsAnalyzingFace] = useState(false);
-  const [faceAnalysis, setFaceAnalysis] = useState<FaceAnalysisResult | null>(null);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
   const [loading, setLoading] = useState(false);
 
   // Check Bluetooth MAC duplication whenever modal opens
@@ -75,135 +69,21 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     }
   }, [isOpen, currentBluetoothMac]);
 
-  // Stop camera when modal is closed or unmounted
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
-
-  const startCamera = async () => {
-    setCameraError(null);
-    try {
-      stopCamera();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 480 },
-          height: { ideal: 480 }
-        },
-        audio: false
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setIsCameraActive(true);
-    } catch (err) {
-      console.error('Camera access error:', err);
-      setCameraError('ไม่สามารถเข้าถึงกล้องหน้าได้ กรุณาอนุญาตการเข้าถึงหรือเลือกอัปโหลดไฟล์');
-      setIsCameraActive(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen && captureMode === 'camera' && !previewImg && !duplicateMacInfo.isDuplicate) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => {
-      stopCamera();
-    };
-  }, [isOpen, captureMode, previewImg, duplicateMacInfo.isDuplicate]);
-
-  // Capture face photo from live video feed
-  const capturePhotoFromCamera = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const vw = video.videoWidth || 480;
-    const vh = video.videoHeight || 480;
-    const cropSize = Math.min(vw, vh);
-    const sx = (vw - cropSize) / 2;
-    const sy = (vh - cropSize) / 2;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 480;
-    canvas.height = 480;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Mirror image for natural selfie feel
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    // Crop tightly to center face to eliminate wide background
-    ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, canvas.width, canvas.height);
-
-    const rawDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    stopCamera();
-
-    await processFaceImage(rawDataUrl);
-  };
-
+  // Handle optional profile picture upload
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const raw = event.target?.result as string;
-        await processFaceImage(raw);
+        try {
+          const compressed = await compressImageBase64(raw, 320, 320, 0.8);
+          setPreviewImg(compressed);
+        } catch {
+          setPreviewImg(raw);
+        }
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  // Run AI analysis on captured / uploaded face image
-  const processFaceImage = async (imageStr: string) => {
-    setIsAnalyzingFace(true);
-    setFaceAnalysis(null);
-    try {
-      // 1. Compress image to optimal base64 size for Firestore
-      const compressed = await compressImageBase64(imageStr, 480, 480, 0.82);
-      setPreviewImg(compressed);
-
-      // 2. Perform AI Facial Landmark & Biometrics Analysis
-      const analysis = await analyzeFaceForRegistration(compressed);
-      setFaceAnalysis(analysis);
-
-      if (!analysis.hasFace) {
-        Swal.fire({
-          title: 'ไม่พบใบหน้าชัดเจน',
-          text: 'AI ตรวจไม่พบใบหน้ามนุษย์ในภาพ กรุณาถ่ายภาพหน้าตรงในที่ที่มีแสงสว่างเพียงพอ',
-          icon: 'warning',
-          confirmButtonColor: '#7C3AED'
-        });
-      }
-    } catch (err) {
-      console.error('Face process error:', err);
-      // Fallback
-      setPreviewImg(imageStr);
-      setFaceAnalysis({
-        hasFace: true,
-        faceCount: 1,
-        isClear: true,
-        quality: 'GOOD',
-        confidence: 88,
-        descriptor: 'บันทึกภาพถ่ายใบหน้าเรียบร้อย',
-        aiSummary: 'บันทึกใบหน้าเข้าสู่ฐานข้อมูลชีวภาพสำเร็จ'
-      });
-    } finally {
-      setIsAnalyzingFace(false);
-    }
-  };
-
-  const handleRetake = () => {
-    setPreviewImg('');
-    setFaceAnalysis(null);
-    if (captureMode === 'camera') {
-      startCamera();
     }
   };
 
@@ -233,71 +113,90 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
       return;
     }
 
-    if (!formData.fullname.trim()) {
+    const cleanUsername = formData.username.trim();
+    const cleanPassword = formData.password.trim();
+    const cleanConfirmPassword = formData.confirmPassword.trim();
+    const cleanFullname = formData.fullname.trim();
+
+    // Validate fields
+    if (!cleanUsername) {
+      Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณาระบุชื่อผู้ใช้งาน (Username)', 'warning');
+      return;
+    }
+
+    if (cleanUsername.length < 3) {
+      Swal.fire('ชื่อผู้ใช้สั้นเกินไป', 'ชื่อผู้ใช้งานต้องมีความยาวอย่างน้อย 3 ตัวอักษร', 'warning');
+      return;
+    }
+
+    if (!cleanPassword) {
+      Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณากำหนดรหัสผ่าน (Password)', 'warning');
+      return;
+    }
+
+    if (cleanPassword.length < 4) {
+      Swal.fire('รหัสผ่านสั้นเกินไป', 'รหัสผ่านต้องมีความยาวอย่างน้อย 4 ตัวอักษร', 'warning');
+      return;
+    }
+
+    if (cleanPassword !== cleanConfirmPassword) {
+      Swal.fire('รหัสผ่านไม่ตรงกัน', 'รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง', 'warning');
+      return;
+    }
+
+    if (!cleanFullname) {
       Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณากรอกชื่อ-นามสกุล', 'warning');
       return;
-    }
-
-    if (!previewImg) {
-      Swal.fire('กรุณาลงทะเบียนใบหน้า', 'กรุณาถ่ายภาพหรืออัปโหลดภาพใบหน้าเพื่อใช้ในการจดจำ AI', 'warning');
-      return;
-    }
-
-    if (faceAnalysis && !faceAnalysis.hasFace) {
-      const confirmProceed = await Swal.fire({
-        title: 'ยืนยันการใช้ภาพนี้?',
-        text: 'ระบบ AI อาจตรวจจับใบหน้าได้ไม่ชัดเจน อาจส่งผลต่อความแม่นยำในการสแกนลงเวลา คุณต้องการใช้ภาพนี้ต่อหรือไม่?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'ใช้ภาพนี้',
-        cancelButtonText: 'ถ่ายใหม่',
-        confirmButtonColor: '#7C3AED'
-      });
-      if (!confirmProceed.isConfirmed) return;
     }
 
     setLoading(true);
 
     try {
+      // Check if username already exists
+      const existing = await findUserByUsername(cleanUsername);
+      if (existing) {
+        setLoading(false);
+        Swal.fire({
+          title: 'ชื่อผู้ใช้งานนี้ถูกใช้แล้ว',
+          text: `ชื่อผู้ใช้งาน "${cleanUsername}" มีอยู่ในระบบแล้ว กรุณาเลือกชื่อผู้ใช้งานอื่น`,
+          icon: 'warning',
+          confirmButtonColor: '#7C3AED'
+        });
+        return;
+      }
+
       const userPayload: Omit<UserAccount, 'id'> = {
-        fullname: formData.fullname.trim(),
+        username: cleanUsername,
+        password: cleanPassword,
+        fullname: cleanFullname,
         position: formData.position.trim() || 'ครูผู้สอน',
         department: formData.department.trim() || 'วิชาการ',
         phone: formData.phone.trim() || '',
         role: formData.role,
         status: 'PENDING', // Always PENDING on register: wait for admin approval
         registeredMac: currentBluetoothMac,
-        img: previewImg,
-        faceBiometrics: faceAnalysis
-          ? {
-              analyzedAt: new Date().toISOString(),
-              quality: faceAnalysis.quality,
-              confidence: faceAnalysis.confidence,
-              descriptor: faceAnalysis.descriptor,
-              aiSummary: faceAnalysis.aiSummary
-            }
-          : undefined
+        img: previewImg || undefined
       };
 
       const result = await registerNewUser(userPayload);
       setLoading(false);
 
-      if (result.ok) {
-        stopCamera();
+      if (result && result.ok) {
         await Swal.fire({
-          title: 'ลงทะเบียนฐานข้อมูลใบหน้าสำเร็จ!',
+          title: 'ลงทะเบียนสำเร็จ!',
           html: `
             <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
               <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
-                <p class="font-bold text-purple-900 text-sm">ยินดีต้อนรับ ${formData.fullname}</p>
-                <p class="text-slate-500 text-[11px] mt-0.5">${formData.position || 'ครูผู้สอน'} • ${formData.department || 'วิชาการ'}</p>
+                <p class="font-bold text-purple-900 text-sm">ยินดีต้อนรับ ${cleanFullname}</p>
+                <p class="text-slate-600 text-xs mt-1">ชื่อผู้ใช้: <b class="font-mono text-purple-900">@${cleanUsername}</b></p>
+                <p class="text-slate-500 text-[11px] mt-0.5">${formData.position || 'ครูผู้สอน'} &bull; ${formData.department || 'วิชาการ'}</p>
               </div>
               <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800">
                 <p class="font-bold flex items-center gap-1.5 text-xs">
                   <span>⏳ สถานะ: รอผู้ดูแลระบบอนุมัติ (Pending)</span>
                 </p>
                 <p class="mt-1 text-[11px] leading-relaxed">
-                  ระบบได้บันทึกข้อมูล ผูกรหัส <b>Bluetooth MAC</b> และวิเคราะห์ฐานข้อมูลใบหน้าชีวภาพด้วย AI เรียบร้อยแล้ว ขณะนี้<b>อยู่ระหว่างรอผู้ดูแลระบบตรวจสอบและอนุมัติการใช้งาน</b> เมื่ออนุมัติแล้วจะสามารถเข้าสู่ระบบและลงเวลาได้ทันที
+                  ระบบได้บันทึกชื่อผู้ใช้ รหัสผ่าน และผูกรหัส <b>Bluetooth MAC</b> ประจำอุปกรณ์เรียบร้อยแล้ว ขณะนี้<b>อยู่ระหว่างรอผู้ดูแลระบบตรวจสอบและอนุมัติการใช้งาน</b> เมื่อได้รับการอนุมัติแล้วจะสามารถเข้าสู่ระบบและลงเวลาได้ทันที
                 </p>
               </div>
               <p class="text-[10px] text-slate-400">
@@ -314,7 +213,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
       } else {
         Swal.fire({
           title: 'ลงทะเบียนไม่สำเร็จ',
-          text: result.message,
+          text: result?.message || 'เกิดข้อผิดพลาดในการลงทะเบียน',
           icon: 'error'
         });
       }
@@ -334,7 +233,6 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
     <div
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          stopCamera();
           onClose();
         }
       }}
@@ -348,17 +246,14 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
               <UserPlus className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="font-bold text-lg">ลงทะเบียนฐานข้อมูลใบหน้า</h3>
+              <h3 className="font-bold text-lg">ลงทะเบียนครูและบุคลากร</h3>
               <p className="text-xs text-purple-100">
-                จดจำใบหน้า AI &bull; ผูก Bluetooth MAC ประจำเครื่อง &bull; รออนุมัติ
+                สมัครบัญชีด้วย User & Password &bull; ผูก Bluetooth MAC &bull; รออนุมัติ
               </p>
             </div>
           </div>
           <button
-            onClick={() => {
-              stopCamera();
-              onClose();
-            }}
+            onClick={onClose}
             className="p-2 text-white/80 hover:text-white hover:bg-white/20 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -395,7 +290,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                     <span className="text-slate-500 font-mono text-[11px] ml-1.5">(@{duplicateMacInfo.existingUser?.username})</span>
                   </div>
                   <p className="text-[11px] text-rose-600 mt-1.5 leading-relaxed">
-                    *ระบบป้องกันการลงเวลาแทนกัน กำหนดให้อุปกรณ์ 1 เครื่องลงทะเบียนได้เพียง 1 บัญชีเท่านั้น เครื่องนี้จึงไม่สามารถลงทะเบียนได้อีก หากต้องการเปลี่ยนผู้ใช้งาน กรุณาติดต่อผู้ดูแลระบบเพื่อรีเซ็ตเครื่อง
+                    *ระบบป้องกันการลงเวลาแทนกัน กำหนดให้อุปกรณ์ 1 เครื่องลงทะเบียนได้เพียง 1 บัญชีเท่านั้น หากต้องการเปลี่ยนผู้ใช้งาน กรุณาติดต่อผู้ดูแลระบบเพื่อรีเซ็ตเครื่อง
                   </p>
                 </div>
               </div>
@@ -422,146 +317,93 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             </div>
           )}
 
-          {/* AI Face Biometrics Registration Section */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-[#7C3AED]" />
-                <span>ลงทะเบียนฐานข้อมูลใบหน้าด้วย AI</span>
-                <span className="text-rose-500">*</span>
-              </label>
-
-              {/* Camera mode badge */}
-              {!previewImg && !duplicateMacInfo.isDuplicate && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 rounded-lg border border-purple-200 text-[11px] font-bold text-[#7C3AED]">
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>กล้องสด (ไม่ใช้อัปโหลด)</span>
-                </div>
-              )}
+          {/* ======================================================== */}
+          {/* USERNAME & PASSWORD CREDENTIALS SECTION                  */}
+          {/* ======================================================== */}
+          <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100 space-y-3">
+            <div className="flex items-center gap-2 font-bold text-xs text-[#7C3AED] mb-1">
+              <KeyRound className="w-4 h-4 text-[#7C3AED]" />
+              <span>ข้อมูลบัญชีผู้ใช้งาน (สำหรับเข้าสู่ระบบ)</span>
             </div>
 
-            {/* Video Viewport / Preview Box */}
-            <div className="relative w-full aspect-square max-w-[280px] mx-auto rounded-3xl overflow-hidden bg-slate-900 border-4 border-purple-200 shadow-inner flex items-center justify-center">
-              {duplicateMacInfo.isDuplicate ? (
-                <div className="p-6 text-center text-rose-300">
-                  <Lock className="w-12 h-12 mx-auto mb-2 text-rose-400" />
-                  <p className="text-xs font-bold text-white">เครื่องนี้ถูกล็อกการลงทะเบียน</p>
-                  <p className="text-[10px] text-rose-200 mt-1">Bluetooth MAC ซ้ำกับในระบบ</p>
-                </div>
-              ) : previewImg ? (
-                /* Show Captured / Uploaded Image with AI Biometric Overlay */
-                <div className="relative w-full h-full">
-                  <img src={previewImg} alt="Face Snapshot" className="w-full h-full object-cover" />
+            {/* Username */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                ชื่อผู้ใช้งาน (Username) <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  required
+                  disabled={duplicateMacInfo.isDuplicate}
+                  placeholder="เช่น kru_somchai, somchai01 (อังกฤษ/ตัวเลข)"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-white disabled:bg-slate-100 font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">ใช้สำหรับพิมพ์ล็อกอินเข้าสู่ระบบ (ตัวอักษรภาษาอังกฤษหรือตัวเลข)</p>
+            </div>
 
-                  {/* Face Framing Target Overlay */}
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="w-44 h-56 border-2 border-emerald-400 rounded-[50%] shadow-[0_0_20px_rgba(52,211,153,0.5)] flex items-center justify-center">
-                      <div className="px-2 py-0.5 bg-emerald-600/90 text-white text-[10px] font-bold rounded-full flex items-center gap-1 shadow-md">
-                        <CheckCircle2 className="w-3 h-3" /> ใบหน้าตรวจพบแล้ว
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Retake Button */}
+            {/* Password & Confirm Password */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  รหัสผ่าน (Password) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    disabled={duplicateMacInfo.isDuplicate}
+                    placeholder="อย่างน้อย 4 ตัวอักษร"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-white disabled:bg-slate-100"
+                  />
                   <button
                     type="button"
-                    onClick={handleRetake}
-                    className="absolute bottom-3 right-3 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-white rounded-xl text-xs font-semibold backdrop-blur-sm flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> ถ่ายใหม่
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              ) : (
-                /* Live Camera Feed */
-                <div className="relative w-full h-full flex items-center justify-center">
-                  {cameraError ? (
-                    <div className="p-4 text-center text-white">
-                      <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-2" />
-                      <p className="text-xs font-medium mb-3">{cameraError}</p>
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="px-3 py-1.5 bg-[#7C3AED] text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" /> ลองใหม่
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover scale-x-[-1]"
-                      />
+              </div>
 
-                      {/* Oval Alignment Guide */}
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="w-44 h-56 border-2 border-dashed border-[#A78BFA] rounded-[50%] shadow-[0_0_15px_rgba(167,139,250,0.5)] flex items-center justify-center">
-                          <span className="text-[10px] text-purple-200 font-medium px-2 py-0.5 bg-black/40 rounded-full backdrop-blur-xs">
-                            วางใบหน้าในกรอบวงรี
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Snap Photo Button */}
-                      <div className="absolute bottom-3 inset-x-0 flex justify-center">
-                        <button
-                          type="button"
-                          onClick={capturePhotoFromCamera}
-                          className="px-5 py-2.5 bg-gradient-to-r from-[#7C3AED] to-[#8B5CF6] hover:from-[#6D28D9] hover:to-[#7C3AED] text-white font-bold text-xs rounded-full shadow-lg shadow-purple-900/40 flex items-center gap-2 cursor-pointer transition-all active:scale-95"
-                        >
-                          <Camera className="w-4 h-4" />
-                          <span>ถ่ายภาพใบหน้า</span>
-                        </button>
-                      </div>
-                    </>
-                  )}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ยืนยันรหัสผ่าน <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    disabled={duplicateMacInfo.isDuplicate}
+                    placeholder="พิมพ์รหัสผ่านซ้ำอีกครั้ง"
+                    value={formData.confirmPassword}
+                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                    className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-white disabled:bg-slate-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
-
-            {/* AI Analysis Result Indicator */}
-            {isAnalyzingFace && (
-              <div className="p-3 bg-purple-50 rounded-2xl border border-purple-200 text-xs text-purple-900 flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-[#7C3AED]" />
-                <span className="font-semibold">AI กำลังวิเคราะห์ชีวภาพโครงสร้างใบหน้า...</span>
-              </div>
-            )}
-
-            {faceAnalysis && !isAnalyzingFace && (
-              <div
-                className={`p-3 rounded-2xl border text-xs space-y-1 ${
-                  faceAnalysis.hasFace
-                    ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
-                    : 'bg-amber-50 border-amber-200 text-amber-950'
-                }`}
-              >
-                <div className="flex items-center justify-between font-bold">
-                  <div className="flex items-center gap-1.5">
-                    {faceAnalysis.hasFace ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-amber-600" />
-                    )}
-                    <span>ผลการวิเคราะห์ใบหน้าด้วย AI</span>
-                  </div>
-                  {faceAnalysis.hasFace && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-800">
-                      คะแนนความมั่นใจ: {faceAnalysis.confidence}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed pt-0.5">
-                  {faceAnalysis.aiSummary || faceAnalysis.descriptor}
-                </p>
-              </div>
-            )}
           </div>
 
-          {/* User Profile Form Fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          {/* ======================================================== */}
+          {/* TEACHER PROFILE INFO                                     */}
+          {/* ======================================================== */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 ชื่อ-นามสกุล <span className="text-rose-500">*</span>
@@ -584,7 +426,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                 <input
                   type="text"
                   disabled={duplicateMacInfo.isDuplicate}
-                  placeholder="เช่น ครูชำนาญการพิเศษ"
+                  placeholder="เช่น ครูผู้สอน, ครูชำนาญการ"
                   value={formData.position}
                   onChange={(e) => setFormData({ ...formData, position: e.target.value })}
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 disabled:bg-slate-100 disabled:cursor-not-allowed"
@@ -623,12 +465,50 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             </div>
           </div>
 
+          {/* Optional Profile Picture Upload */}
+          <div className="pt-1">
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              รูปภาพโปรไฟล์ (ไม่บังคับ)
+            </label>
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+              <div className="w-14 h-14 rounded-2xl overflow-hidden bg-purple-100 border border-purple-200 shrink-0 flex items-center justify-center">
+                {previewImg ? (
+                  <img src={previewImg} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-7 h-7 text-[#7C3AED]" />
+                )}
+              </div>
+              <div className="flex-1">
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-purple-50 text-[#7C3AED] rounded-xl text-xs font-bold border border-purple-200 cursor-pointer shadow-xs transition-colors">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>เลือกรูปภาพ</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+                </label>
+                {previewImg && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewImg('')}
+                    className="ml-2 text-xs text-rose-500 hover:underline cursor-pointer"
+                  >
+                    ลบรูป
+                  </button>
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">อัปโหลดรูปภาพเพื่อใช้แสดงในหน้าโปรไฟล์และรายงาน</p>
+              </div>
+            </div>
+          </div>
+
           {/* Pending Approval Notice */}
           <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-200/90 flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <p className="text-[11px] text-amber-800 leading-relaxed">
               <b>เงื่อนไขการเปิดใช้งาน:</b> หลังลงทะเบียน บัญชีจะอยู่ในสถานะ <b>"รออนุมัติ"</b>{' '}
-              เพื่อให้ผู้ดูแลระบบตรวจสอบใบหน้าและข้อมูลก่อน จึงจะสามารถเข้าสู่ระบบและลงเวลาได้
+              เพื่อให้ผู้ดูแลระบบตรวจสอบข้อมูลก่อน จึงจะสามารถเข้าสู่ระบบด้วย Username & Password เพื่อลงเวลาได้
             </p>
           </div>
 
@@ -646,16 +526,16 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             ) : (
               <button
                 type="submit"
-                disabled={loading || isAnalyzingFace || !previewImg || isCheckingMac}
+                disabled={loading || isCheckingMac}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white font-bold text-sm shadow-md shadow-purple-900/20 hover:opacity-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {loading ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> กำลังบันทึกข้อมูลและใบหน้า...
+                    <Loader2 className="w-4 h-4 animate-spin" /> กำลังบันทึกข้อมูลการลงทะเบียน...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4" /> ยืนยันการลงทะเบียน (ส่งขออนุมัติ)
+                    <UserPlus className="w-4 h-4" /> ยืนยันการลงทะเบียน (ส่งขออนุมัติ)
                   </>
                 )}
               </button>

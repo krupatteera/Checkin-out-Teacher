@@ -65,7 +65,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
       setIsError(true);
       Swal.fire({
         title: 'รหัส PIN ไม่ถูกต้อง',
-        text: 'กรุณากรอกรหัส PIN 6 หลักที่ถูกต้อง (รหัสเริ่มต้นคือ 000000)',
+        text: 'กรุณากรอกรหัส PIN 6 หลักที่ถูกต้อง',
         icon: 'error',
         confirmButtonColor: '#7C3AED',
         timer: 2000
@@ -120,7 +120,7 @@ export const AdminPinModal: React.FC<AdminPinModalProps> = ({
           </div>
           <h3 className="font-extrabold text-slate-800 text-lg">เข้าสู่ระบบผู้ดูแลระบบ</h3>
           <p className="text-xs text-slate-500 mt-1">
-            กรอกรหัส PIN 6 หลักเพื่อเข้าใช้งาน (รหัสเริ่มต้น <span className="font-mono font-bold text-[#7C3AED]">000000</span>)
+            กรอกรหัส PIN 6 หลักเพื่อเข้าใช้งานระบบความปลอดภัย
           </p>
         </div>
 

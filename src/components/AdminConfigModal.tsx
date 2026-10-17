@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, MapPin, Clock, Save, X, Navigation, Loader2, Building, ShieldCheck, Image as ImageIcon, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { Settings, MapPin, Clock, Save, X, Navigation, Loader2, Building, ShieldCheck, Image as ImageIcon, KeyRound, Eye, EyeOff, GraduationCap } from 'lucide-react';
 import L from 'leaflet';
 import { SchoolConfig } from '../types';
 import { saveSchoolConfig } from '../firebase';
@@ -222,6 +222,20 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                   onChange={(e) => setFormData({ ...formData, orgAffiliation: e.target.value })}
                   placeholder="เช่น สพป.อุดรธานี เขต 3"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-[#7C3AED]" />
+                  <span>ปีการศึกษาปัจจุบัน (Academic Year)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicYear || ''}
+                  onChange={(e) => setFormData({ ...formData, academicYear: e.target.value })}
+                  placeholder="เช่น 2569"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-medium"
                 />
               </div>
 
