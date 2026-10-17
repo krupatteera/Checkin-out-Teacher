@@ -640,65 +640,66 @@ export default function App() {
   // --------------------------------------------------------------------------
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-purple-50/40 to-slate-100 p-4 sm:p-6 lg:p-10 relative">
-        <div className="flex-1 flex items-center justify-center py-6">
-          <div className="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-[32px] shadow-2xl shadow-purple-950/10 border border-purple-100 overflow-hidden grid grid-cols-1 md:grid-cols-12 transition-all">
+      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-50 via-purple-50/40 to-slate-100 p-3 sm:p-5 lg:p-8 relative">
+        <div className="flex-1 flex items-center justify-center py-2 sm:py-4">
+          <div className="w-full max-w-md md:max-w-4xl lg:max-w-5xl bg-white/95 backdrop-blur-xl rounded-2xl sm:rounded-3xl md:rounded-[32px] shadow-xl md:shadow-2xl shadow-purple-950/10 border border-purple-100 overflow-hidden grid grid-cols-1 md:grid-cols-12 transition-all my-auto">
             {/* Left Column: School Info & Branding */}
-            <div className="md:col-span-5 bg-gradient-to-br from-[#7C3AED] via-[#6D28D9] to-[#8B5CF6] p-8 sm:p-10 text-white flex flex-col justify-between relative overflow-hidden">
-              <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#C4B5FD]/20 blur-3xl" />
-              <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-[#8B5CF6]/25 blur-3xl" />
+            <div className="md:col-span-5 bg-gradient-to-br from-[#7C3AED] via-[#6D28D9] to-[#8B5CF6] p-5 sm:p-7 md:p-8 text-white flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-[#C4B5FD]/20 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-[#8B5CF6]/25 blur-3xl pointer-events-none" />
 
               <div className="relative z-10">
-                <div className="flex items-center gap-4 mb-6">
+                <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-5">
                   {config.logoUrl ? (
                     <img
                       src={config.logoUrl}
                       alt="Logo"
-                      className="w-16 h-16 rounded-2xl object-cover shadow-lg border-2 border-white/30 bg-white"
+                      className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-xl sm:rounded-2xl object-cover shadow-lg border-2 border-white/30 bg-white shrink-0"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-lg">
-                      <School className="w-9 h-9" />
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-xl sm:rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center text-white shadow-lg shrink-0">
+                      <School className="w-7 h-7 sm:w-8 sm:h-8" />
                     </div>
                   )}
-                  <span className="text-xs font-extrabold tracking-wider bg-amber-400/25 text-amber-200 px-3.5 py-1.5 rounded-full border border-amber-300/30 inline-flex items-center gap-1.5 w-fit shadow-xs">
-                    <GraduationCap className="w-4 h-4 text-amber-300" />
+                  <span className="text-[11px] sm:text-xs font-extrabold tracking-wider bg-amber-400/25 text-amber-200 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full border border-amber-300/30 inline-flex items-center gap-1.5 w-fit shadow-xs">
+                    <GraduationCap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
                     ปีการศึกษา {currentAcademicYear}
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-snug text-white">
+                <div className="space-y-1 sm:space-y-1.5">
+                  <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight leading-snug text-white">
                     ระบบลงเวลาปฏิบัติงานออนไลน์
                   </h1>
-                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-snug text-purple-100">
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight leading-snug text-purple-100">
                     {config.orgName}
                   </h2>
                 </div>
-                <p className="text-xs sm:text-sm text-purple-100 font-medium mt-2 leading-relaxed opacity-95">
+                <p className="text-xs sm:text-sm text-purple-200 font-medium mt-1 sm:mt-2 leading-relaxed opacity-95">
                   {config.orgAffiliation}
                 </p>
 
-                <div className="mt-8 space-y-3 text-xs">
-                  <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
-                    <KeyRound className="w-5 h-5 text-[#C4B5FD] shrink-0" />
+                {/* Features Highlights - Hidden on small mobile to fit screen immediately, shown on tablet/desktop */}
+                <div className="hidden md:block mt-6 space-y-2.5 text-xs">
+                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white/10 backdrop-blur-md border border-white/15">
+                    <KeyRound className="w-4 h-4 text-[#C4B5FD] shrink-0" />
                     <span>เข้าสู่ระบบด้วย Username & Password สะดวกและปลอดภัย</span>
                   </div>
-                  <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
-                    <MapPin className="w-5 h-5 text-[#AED581] shrink-0" />
+                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white/10 backdrop-blur-md border border-white/15">
+                    <MapPin className="w-4 h-4 text-[#AED581] shrink-0" />
                     <span>ลงเวลาด้วยพิกัด GPS แม่นยำ รัศมี {config.radius} เมตร</span>
                   </div>
-                  <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
-                    <Bluetooth className="w-5 h-5 text-[#FFCA28] shrink-0" />
+                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white/10 backdrop-blur-md border border-white/15">
+                    <Bluetooth className="w-4 h-4 text-[#FFCA28] shrink-0" />
                     <span>ผูกรหัส Bluetooth MAC ประจำเครื่อง ป้องกันลงเวลาแทนกัน</span>
                   </div>
                 </div>
               </div>
 
               {/* Hardware Device Signature Info */}
-              <div className="relative z-10 mt-8 pt-4 border-t border-white/15 text-[11px] text-purple-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Bluetooth className="w-4 h-4 text-[#C4B5FD]" />
+              <div className="relative z-10 mt-4 sm:mt-6 pt-3 border-t border-white/15 text-[10px] sm:text-[11px] text-purple-100 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Bluetooth className="w-3.5 h-3.5 text-[#C4B5FD]" />
                   <span className="font-mono">{currentDeviceMac}</span>
                 </div>
                 <span className="text-[10px] bg-white/15 px-2 py-0.5 rounded-full">{deviceLabel}</span>
@@ -706,33 +707,33 @@ export default function App() {
             </div>
 
             {/* Right Column: Teacher Login Form (Username & Password) */}
-            <div className="md:col-span-7 p-6 sm:p-10 flex flex-col justify-center">
-              <div className="mb-6 text-center sm:text-left">
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold border border-purple-200">
-                    <Lock className="w-3.5 h-3.5" /> ระบบเข้าสู่ระบบด้วยชื่อผู้ใช้และรหัสผ่าน
+            <div className="md:col-span-7 p-5 sm:p-7 md:p-8 flex flex-col justify-center">
+              <div className="mb-4 sm:mb-6 text-center sm:text-left">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mb-2">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold border border-purple-200">
+                    <Lock className="w-3.5 h-3.5" /> เข้าสู่ระบบ
                   </div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-900 text-xs font-bold border border-amber-200">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 text-xs font-bold border border-amber-200">
                     <GraduationCap className="w-3.5 h-3.5 text-amber-600" /> ปีการศึกษา {currentAcademicYear}
                   </div>
                 </div>
-                <h2 className="text-2xl font-extrabold text-slate-800">เข้าสู่ระบบสำหรับครูและบุคลากร</h2>
+                <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800">เข้าสู่ระบบสำหรับครูและบุคลากร</h2>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  กรอกชื่อผู้ใช้งาน (User) และรหัสผ่าน (Password) เพื่อเข้าสู่ระบบลงเวลาปฏิบัติงาน ประจำปีการศึกษา {currentAcademicYear}
+                  กรอกชื่อผู้ใช้งาน (User) และรหัสผ่าน (Password) เพื่อลงเวลาปฏิบัติงาน
                 </p>
               </div>
 
               {/* Login Form */}
-              <form onSubmit={handleTeacherLogin} className="space-y-4">
+              <form onSubmit={handleTeacherLogin} className="space-y-3 sm:space-y-4">
                 {/* Username Input */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
                     <span>ชื่อผู้ใช้งาน (Username)</span>
                     <span className="text-[11px] text-slate-400 font-normal">เช่น kru_somchai</span>
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                      <User className="w-5 h-5 text-slate-400" />
+                      <User className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
                     </div>
                     <input
                       type="text"
@@ -741,19 +742,19 @@ export default function App() {
                       placeholder="กรอกชื่อผู้ใช้งาน"
                       value={loginUsername}
                       onChange={(e) => setLoginUsername(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#7C3AED] focus:ring-4 focus:ring-purple-100 text-sm bg-slate-50/50 transition-all font-medium"
+                      className="w-full pl-10 sm:pl-11 pr-4 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border border-slate-200 focus:outline-none focus:border-[#7C3AED] focus:ring-4 focus:ring-purple-100 text-sm bg-slate-50/50 transition-all font-medium"
                     />
                   </div>
                 </div>
 
                 {/* Password Input */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     รหัสผ่าน (Password)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                      <Lock className="w-5 h-5 text-slate-400" />
+                      <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" />
                     </div>
                     <input
                       type={showLoginPassword ? 'text' : 'password'}
@@ -762,7 +763,7 @@ export default function App() {
                       placeholder="กรอกรหัสผ่าน"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
-                      className="w-full pl-11 pr-12 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#7C3AED] focus:ring-4 focus:ring-purple-100 text-sm bg-slate-50/50 transition-all"
+                      className="w-full pl-10 sm:pl-11 pr-11 sm:pr-12 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border border-slate-200 focus:outline-none focus:border-[#7C3AED] focus:ring-4 focus:ring-purple-100 text-sm bg-slate-50/50 transition-all"
                     />
                     <button
                       type="button"
@@ -770,13 +771,13 @@ export default function App() {
                       className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
                       title={showLoginPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                     >
-                      {showLoginPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      {showLoginPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                     </button>
                   </div>
                 </div>
 
                 {/* Remember Username */}
-                <div className="flex items-center justify-between text-xs pt-1">
+                <div className="flex flex-wrap items-center justify-between text-xs pt-0.5 sm:pt-1 gap-1">
                   <label className="flex items-center gap-2 cursor-pointer text-slate-600">
                     <input
                       type="checkbox"
@@ -786,17 +787,17 @@ export default function App() {
                     />
                     <span>จดจำชื่อผู้ใช้งานในเครื่องนี้</span>
                   </label>
-                  <span className="text-[11px] text-slate-400">
+                  <span className="text-[10px] sm:text-[11px] text-slate-400">
                     เครื่อง: <b className="font-mono text-purple-900">{currentDeviceMac}</b>
                   </span>
                 </div>
 
                 {/* Submit Button */}
-                <div className="pt-2">
+                <div className="pt-1.5 sm:pt-2">
                   <button
                     type="submit"
                     disabled={loginLoading}
-                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] hover:from-[#6D28D9] hover:to-[#7C3AED] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] disabled:opacity-50"
+                    className="w-full py-3 sm:py-3.5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] hover:from-[#6D28D9] hover:to-[#7C3AED] text-white font-extrabold text-sm shadow-lg shadow-purple-800/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] disabled:opacity-50"
                   >
                     {loginLoading ? (
                       <>
@@ -812,12 +813,12 @@ export default function App() {
               </form>
 
               {/* Register link */}
-              <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-3">
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-2 sm:gap-3">
                 <span className="text-slate-500">ครูใหม่ หรือยังไม่มีบัญชีในระบบ?</span>
                 <button
                   type="button"
                   onClick={() => setRegisterModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-purple-50 text-[#7C3AED] font-bold hover:bg-purple-100 transition-colors inline-flex items-center gap-1.5 cursor-pointer border border-purple-200/60"
+                  className="w-full sm:w-auto justify-center px-3.5 py-2 rounded-xl bg-purple-50 text-[#7C3AED] font-bold hover:bg-purple-100 transition-colors inline-flex items-center gap-1.5 cursor-pointer border border-purple-200/60"
                 >
                   <UserPlus className="w-4 h-4" /> ลงทะเบียนครูใหม่ (User & Password)
                 </button>
@@ -827,18 +828,18 @@ export default function App() {
         </div>
 
         {/* Global Footer */}
-        <footer className="text-center py-4 text-xs font-semibold text-slate-500">
+        <footer className="text-center py-2 sm:py-3 px-4 text-[10px] sm:text-xs font-semibold text-slate-500">
           ระบบลงเวลาปฏิบัติงานออนไลน์ {config.orgName} ประจำปีการศึกษา {currentAcademicYear} โดย รองฯภัทรธีระ ประทุมเม
         </footer>
 
         {/* Floating Action Button (Bottom Right) - Only Icon */}
-        <div className="fixed bottom-6 right-6 z-40">
+        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40">
           <button
             type="button"
             onClick={() => setAdminPinModalOpen(true)}
-            className="w-14 h-14 rounded-full bg-gradient-to-br from-[#7C3AED] via-[#8B5CF6] to-[#6D28D9] text-white flex items-center justify-center shadow-xl shadow-purple-900/30 hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/80"
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-[#7C3AED] via-[#8B5CF6] to-[#6D28D9] text-white flex items-center justify-center shadow-xl shadow-purple-900/30 hover:scale-110 active:scale-95 transition-all cursor-pointer border-2 border-white/80"
           >
-            <ShieldCheck className="w-7 h-7" />
+            <ShieldCheck className="w-6 h-6 sm:w-7 sm:h-7" />
           </button>
         </div>
 
