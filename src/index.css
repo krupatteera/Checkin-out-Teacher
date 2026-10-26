@@ -75,21 +75,30 @@ body {
   filter: brightness(1.08);
 }
 
-/* Floating bottom nav bar blur */
+/* Floating bottom nav bar blur & safe area */
 .floating-bottom-nav {
   position: fixed;
-  bottom: 1rem;
+  bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
   left: 50%;
   transform: translateX(-50%);
-  width: calc(100% - 2rem);
+  width: calc(100% - 1.5rem);
   max-width: 480px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-radius: 28px;
+  border-radius: 26px;
   border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow: 0 12px 35px -8px rgba(139, 92, 246, 0.22), 0 4px 12px rgba(0,0,0,0.05);
   z-index: 40;
+}
+
+/* Hide scrollbar for clean touch horizontal scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Print styles for A4 table printing */
@@ -106,6 +115,6 @@ body {
   }
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 5mm 6mm !important; /* ระยะขอบแคบ (Narrow Margins) */
   }
 }

@@ -1,6 +1,6 @@
 /**
  * Custom SweetAlert implementation with Modern UI, smooth animations,
- * beautiful icons and zero external CDN dependency issues.
+ * beautiful icons, preConfirm support and validation messages.
  */
 
 export interface SweetAlertOptions {
@@ -15,15 +15,48 @@ export interface SweetAlertOptions {
   confirmButtonColor?: string;
   cancelButtonColor?: string;
   timer?: number;
+  focusConfirm?: boolean;
+  preConfirm?: () => any;
 }
 
-export interface SweetAlertResult {
+export interface SweetAlertResult<T = any> {
   isConfirmed: boolean;
   isDismissed: boolean;
+  value?: T;
 }
 
 export const Swal = {
-  fire(optionsOrTitle: SweetAlertOptions | string, text?: string, icon?: SweetAlertOptions['icon']): Promise<SweetAlertResult> {
+  showValidationMessage(message: string) {
+    const container = document.getElementById('sweet-alert-container');
+    if (!container) return;
+    let msgEl = container.querySelector('#swal-validation-message') as HTMLElement | null;
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.id = 'swal-validation-message';
+      msgEl.className = 'mt-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold text-center';
+      const card = container.querySelector('.bg-white');
+      if (card) {
+        const btnElem = card.querySelector('#swal-confirm') || card.querySelector('#swal-cancel');
+        const btnContainer = btnElem ? btnElem.closest('div') : null;
+        if (btnContainer && btnContainer.parentElement) {
+          btnContainer.parentElement.insertBefore(msgEl, btnContainer);
+        } else {
+          card.appendChild(msgEl);
+        }
+      }
+    }
+    if (msgEl) {
+      msgEl.textContent = message;
+      msgEl.style.display = 'block';
+    }
+  },
+
+  resetValidationMessage() {
+    const msgEl = document.getElementById('swal-validation-message');
+    if (msgEl) msgEl.remove();
+  },
+
+  fire<T = any>(optionsOrTitle: SweetAlertOptions | string, text?: string, icon?: SweetAlertOptions['icon']): Promise<SweetAlertResult<T>> {
     return new Promise((resolve) => {
       let options: SweetAlertOptions;
       if (typeof optionsOrTitle === 'string') {
@@ -55,7 +88,7 @@ export const Swal = {
       const selectedIcon = options.icon ? iconColors[options.icon] : null;
 
       const card = document.createElement('div');
-      card.className = 'w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-7 text-center transform scale-90 transition-all duration-300 border border-slate-100';
+      card.className = 'w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 sm:p-7 text-center transform scale-90 transition-all duration-300 border border-slate-100 max-h-[90vh] overflow-y-auto';
 
       let iconHtml = '';
       if (selectedIcon) {
@@ -113,20 +146,31 @@ export const Swal = {
         card.classList.add('scale-100');
       });
 
-      const cleanup = (confirmed: boolean) => {
+      const cleanup = (confirmed: boolean, value?: T) => {
         container.classList.remove('opacity-100');
         container.classList.add('opacity-0');
         card.classList.remove('scale-100');
         card.classList.add('scale-90');
         setTimeout(() => {
           if (container.parentNode) container.parentNode.removeChild(container);
-          resolve({ isConfirmed: confirmed, isDismissed: !confirmed });
+          resolve({ isConfirmed: confirmed, isDismissed: !confirmed, value });
         }, 200);
       };
 
       const confirmBtn = card.querySelector('#swal-confirm');
       if (confirmBtn) {
-        confirmBtn.addEventListener('click', () => cleanup(true));
+        confirmBtn.addEventListener('click', async () => {
+          let preValue: any = true;
+          if (options.preConfirm) {
+            try {
+              preValue = await options.preConfirm();
+              if (preValue === false) return;
+            } catch {
+              return;
+            }
+          }
+          cleanup(true, preValue);
+        });
       }
 
       const cancelBtn = card.querySelector('#swal-cancel');

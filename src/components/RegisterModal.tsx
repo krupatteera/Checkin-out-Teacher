@@ -15,7 +15,6 @@ import {
   Eye,
   EyeOff,
   Upload,
-  Camera,
   RefreshCw
 } from 'lucide-react';
 import { UserAccount } from '../types';
@@ -146,6 +145,16 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
 
     if (!cleanFullname) {
       Swal.fire('ข้อมูลไม่ครบถ้วน', 'กรุณากรอกชื่อ-นามสกุล', 'warning');
+      return;
+    }
+
+    if (!previewImg) {
+      Swal.fire({
+        title: 'กรุณาแนบรูปถ่าย',
+        text: 'การลงทะเบียนครูจำเป็นต้องแนบรูปถ่ายหน้าตรง (บังคับใส่รูป)',
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
       return;
     }
 
@@ -465,12 +474,12 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
             </div>
           </div>
 
-          {/* Optional Profile Picture Upload */}
+          {/* Mandatory Profile Picture Upload */}
           <div className="pt-1">
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              รูปภาพโปรไฟล์ (ไม่บังคับ)
+              รูปภาพโปรไฟล์ <span className="text-rose-500 font-extrabold">* (บังคับแนบรูปถ่าย)</span>
             </label>
-            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+            <div className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${!previewImg ? 'bg-amber-50/40 border-amber-300' : 'bg-slate-50 border-slate-200'}`}>
               <div className="w-14 h-14 rounded-2xl overflow-hidden bg-purple-100 border border-purple-200 shrink-0 flex items-center justify-center">
                 {previewImg ? (
                   <img src={previewImg} alt="Preview" className="w-full h-full object-cover" />
@@ -481,7 +490,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
               <div className="flex-1">
                 <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-purple-50 text-[#7C3AED] rounded-xl text-xs font-bold border border-purple-200 cursor-pointer shadow-xs transition-colors">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>เลือกรูปภาพ</span>
+                  <span>{previewImg ? 'เปลี่ยนรูปภาพ' : 'เลือกรูปภาพ *'}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -498,7 +507,9 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ isOpen, onClose, o
                     ลบรูป
                   </button>
                 )}
-                <p className="text-[10px] text-slate-400 mt-1">อัปโหลดรูปภาพเพื่อใช้แสดงในหน้าโปรไฟล์และรายงาน</p>
+                <p className={`text-[10px] mt-1 ${previewImg ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-bold'}`}>
+                  {previewImg ? '✓ แนบรูปถ่ายหน้าตรงเรียบร้อยแล้ว' : '⚠️ บังคับแนบรูปถ่ายหน้าตรงเพื่อยืนยันตัวตน'}
+                </p>
               </div>
             </div>
           </div>

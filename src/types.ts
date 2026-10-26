@@ -1,6 +1,7 @@
 export interface SchoolConfig {
   id?: string;
   orgName: string;
+  systemName?: string;
   orgAffiliation: string;
   logoUrl?: string;
   academicYear?: string; // e.g. "2569"
@@ -10,6 +11,7 @@ export interface SchoolConfig {
   centerLng: number;
   radius: number; // in meters, e.g. 150
   adminPin?: string; // 6-digit PIN for admin login (default "000000")
+  lineNotifyToken?: string; // LINE Notify Access Token for sending notifications on late check-in
 }
 
 export interface UserAccount {
@@ -77,4 +79,16 @@ export interface Coordinates {
   latitude: number;
   longitude: number;
   accuracy?: number;
+}
+
+export interface HolidaySetting {
+  date: string; // YYYY-MM-DD
+  name: string; // Name of holiday or note e.g. "วันปิยมหาราช" or "วันทำการพิเศษ (สอนชดเชย)"
+  isHoliday: boolean; // true = Holiday (วันหยุด), false = Workday (วันทำการพิเศษ เช่น เปิดเรียน/ทำงานวันเสาร์-อาทิตย์)
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface HolidaysConfigMap {
+  [dateStr: string]: HolidaySetting;
 }

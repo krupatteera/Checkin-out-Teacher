@@ -1,6 +1,6 @@
 {
   "name": "ระบบลงเวลาปฏิบัติงานออนไลน์",
-  "description": "ระบบลงเวลาปฏิบัติงานออนไลน์สำหรับครูและบุคลากรทางการศึกษา พร้อมสแกนใบหน้า ระบุพิกัด GPS และจดจำอุปกรณ์",
-  "requestFramePermissions": ["camera", "geolocation"],
+  "description": "ระบบลงเวลาปฏิบัติงานออนไลน์สำหรับครูและบุคลากรทางการศึกษา พร้อมระบุพิกัด GPS และจดจำอุปกรณ์",
+  "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

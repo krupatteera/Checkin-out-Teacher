@@ -45,6 +45,51 @@ async function startServer() {
     });
   });
 
+  // Network / Internet Time Synchronization Endpoint (NTP / NIMT Authority)
+  app.get('/api/time', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    try {
+      // Fetch official time from NIMT (National Institute of Metrology Thailand)
+      const nimtRes = await fetch('https://www.nimt.or.th/nimt_time_display.php', {
+        method: 'GET',
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (nimtRes.ok) {
+        const html = await nimtRes.text();
+        // NIMT typically responds with current date/time or JSON/HTML. Let's check if we can parse timestamp or date.
+        // If it's HTML, we can extract server date header or use Date.now() synchronized with NIMT response headers.
+        const dateHeader = nimtRes.headers.get('date');
+        if (dateHeader) {
+          const nimtDate = new Date(dateHeader);
+          if (!isNaN(nimtDate.getTime())) {
+            return res.json({
+              timestamp: nimtDate.getTime(),
+              iso: nimtDate.toISOString(),
+              utc: nimtDate.toUTCString(),
+              timeZone: 'Asia/Bangkok',
+              source: 'NIMT (National Institute of Metrology Thailand)'
+            });
+          }
+        }
+      }
+    } catch {
+      // Fallback to server time if NIMT is temporarily unreachable
+    }
+
+    const now = new Date();
+    res.json({
+      timestamp: now.getTime(),
+      iso: now.toISOString(),
+      utc: now.toUTCString(),
+      timeZone: 'Asia/Bangkok',
+      source: 'Cloud Server Authority'
+    });
+  });
+
   // AI Face Analysis Endpoint (Registration)
   app.post('/api/ai/analyze-face', async (req, res) => {
     try {

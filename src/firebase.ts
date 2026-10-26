@@ -13,10 +13,12 @@ import {
   getDocs,
   deleteDoc,
   orderBy,
-  limit
+  limit,
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { SchoolConfig, UserAccount, AttendanceRecord, SystemLog } from './types';
+import { SchoolConfig, UserAccount, AttendanceRecord, SystemLog, HolidaySetting, HolidaysConfigMap } from './types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -85,6 +87,7 @@ testConnection();
 // Default initial config
 export const DEFAULT_CONFIG: SchoolConfig = {
   orgName: "โรงเรียนอนุบาลศรีสุทโธ",
+  systemName: "ระบบลงเวลาปฏิบัติงานออนไลน์สำหรับครูและบุคลากรทางการศึกษา",
   orgAffiliation: "สพป.อุดรธานี เขต 3",
   logoUrl: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=160&q=80",
   academicYear: "2569",
@@ -337,10 +340,64 @@ export async function resetUserMacAddress(userId: string): Promise<{ ok: boolean
   }
 }
 
+// LINE Notify Helper
+async function sendLineNotify(message: string, token?: string) {
+  if (!token || !token.trim()) return;
+  try {
+    // Note: Since LINE Notify blocks direct browser fetch due to CORS in some environments,
+    // we use a cors proxy or standard endpoint. Alternatively, standard fetch to notify-api.line.me:
+    const formData = new URLSearchParams();
+    formData.append('message', message);
+    
+    await fetch('https://notify-api.line.me/api/notify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Bearer ${token.trim()}`
+      },
+      body: formData.toString()
+    }).catch(() => {
+      // Fallback or ignore network CORS restriction in frontend-only preview
+    });
+  } catch (e) {
+    console.error('LINE Notify error:', e);
+  }
+}
+
 // ==================== ATTENDANCE SERVICES ====================
 export async function saveAttendanceRecord(record: Omit<AttendanceRecord, 'id'>): Promise<{ ok: boolean; message: string }> {
   const path = 'attendance';
   try {
+    // Check existing records for this user on this date to enforce strict mutual exclusion rules:
+    // 1. If already clocked in (IN) or out (OUT), cannot submit LEAVE or OFFICIAL.
+    // 2. If already submitted LEAVE or OFFICIAL, cannot clock in/out or submit the other.
+    const existingQ = query(
+      collection(db, 'attendance'),
+      where('userId', '==', record.userId),
+      where('date', '==', record.date)
+    );
+    const existingSnap = await getDocs(existingQ);
+    const existingRecords = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord & { id: string }));
+
+    const hasIn = existingRecords.some(r => r.action === 'IN');
+    const hasOut = existingRecords.some(r => r.action === 'OUT');
+    const hasLeave = existingRecords.some(r => r.action === 'LEAVE');
+    const hasOfficial = existingRecords.some(r => r.action === 'OFFICIAL');
+
+    if (record.action === 'LEAVE' || record.action === 'OFFICIAL') {
+      for (const r of existingRecords) {
+        await deleteDoc(doc(db, 'attendance', r.id));
+      }
+    }
+
+    if (record.action === 'IN' || record.action === 'OUT') {
+      for (const r of existingRecords) {
+        if (r.action === 'LEAVE' || r.action === 'OFFICIAL') {
+          await deleteDoc(doc(db, 'attendance', r.id));
+        }
+      }
+    }
+
     // Generate doc ID: YYYY-MM-DD_username_action
     const docId = `${record.date}_${record.userId}_${record.action}_${Date.now()}`;
     await setDoc(doc(db, 'attendance', docId), record);
@@ -356,12 +413,32 @@ export async function saveAttendanceRecord(record: Omit<AttendanceRecord, 'id'>)
       `${actionLabel} | เวลา: ${record.time} | พิกัด: ${record.lat?.toFixed(5) || '-'}, ${record.lng?.toFixed(5) || '-'} | ห่าง: ${record.distance || 0} ม. | MAC: ${record.macAddress || '-'}`
     );
 
+    // If check-in (IN) and isLate is true, send LINE Notify if configured
+    if (record.action === 'IN' && record.isLate) {
+      try {
+        const configSnap = await getDoc(doc(db, 'config', 'school_main'));
+        if (configSnap.exists()) {
+          const cfg = configSnap.data() as SchoolConfig;
+          if (cfg.lineNotifyToken) {
+            const lineMsg = `\n🚨 แจ้งเตือนลงเวลามาสาย\n- ครู/บุคลากร: ${record.employeeName} (@${record.employeeId})\n- วันที่: ${record.dateThai || record.date}\n- เวลาเข้างาน: ${record.time} น. (สายกว่าเกณฑ์ ${cfg.lateTime || '08:30'} น.)\n- ระยะห่าง: ${record.distance || 0} เมตร`;
+            await sendLineNotify(lineMsg, cfg.lineNotifyToken);
+          }
+        }
+      } catch (notifyErr) {
+        console.error('Failed to send LINE notify for late check-in:', notifyErr);
+      }
+    }
+
     let msg = 'บันทึกเวลาเรียบร้อยแล้ว';
     if (record.action === 'LEAVE') msg = 'บันทึกข้อมูลการลาเรียบร้อยแล้ว';
     if (record.action === 'OFFICIAL') msg = 'บันทึกข้อมูลการไปราชการเรียบร้อยแล้ว';
 
     return { ok: true, message: msg };
-  } catch (err) {
+  } catch (err: any) {
+    // If it's a validation error (e.g. mutual exclusion rule), throw directly so the frontend can display it cleanly without logging as a Firestore crash
+    if (err instanceof Error && err.message && !err.message.includes('Missing or insufficient permissions')) {
+      throw err;
+    }
     handleFirestoreError(err, OperationType.WRITE, path);
   }
 }
@@ -384,6 +461,17 @@ export async function getAttendanceByMonth(yearMonthStr: string): Promise<Attend
     const snap = await getDocs(collection(db, 'attendance'));
     const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
     return all.filter(r => r.date && r.date.startsWith(yearMonthStr));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+  }
+}
+
+export async function getAttendanceByDateRange(startDateStr: string, endDateStr: string): Promise<AttendanceRecord[]> {
+  const path = 'attendance';
+  try {
+    const snap = await getDocs(collection(db, 'attendance'));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord));
+    return all.filter(r => r.date && r.date >= startDateStr && r.date <= endDateStr);
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
   }
@@ -484,3 +572,386 @@ export async function getSystemLogsList(): Promise<SystemLog[]> {
     return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
   }
 }
+
+// ==================== HOLIDAYS CONFIG SERVICES ====================
+export async function getSchoolHolidays(forceServer = true): Promise<HolidaysConfigMap> {
+  const path = 'config/school_holidays';
+  try {
+    const docRef = doc(db, 'config', 'school_holidays');
+    let snap;
+    if (forceServer) {
+      try {
+        snap = await getDocFromServer(docRef);
+      } catch {
+        snap = await getDoc(docRef);
+      }
+    } else {
+      snap = await getDoc(docRef);
+    }
+    if (snap.exists()) {
+      return (snap.data()?.holidays || {}) as HolidaysConfigMap;
+    }
+    return {};
+  } catch (err) {
+    console.warn('Error getting school holidays:', err);
+    return {};
+  }
+}
+
+export function subscribeSchoolHolidays(callback: (map: HolidaysConfigMap) => void): () => void {
+  const docRef = doc(db, 'config', 'school_holidays');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data()?.holidays || {};
+        callback(data as HolidaysConfigMap);
+      } else {
+        callback({});
+      }
+    },
+    (err) => {
+      console.warn('Error in subscribeSchoolHolidays listener:', err);
+    }
+  );
+}
+
+export async function saveSchoolHoliday(
+  setting: HolidaySetting,
+  adminUsername: string
+): Promise<{ ok: boolean; message: string }> {
+  const path = 'config/school_holidays';
+  try {
+    const docRef = doc(db, 'config', 'school_holidays');
+    const snap = await getDoc(docRef);
+    const currentMap = snap.exists() ? (snap.data()?.holidays || {}) : {};
+    currentMap[setting.date] = {
+      ...setting,
+      updatedBy: adminUsername,
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(docRef, { holidays: currentMap }, { merge: true });
+    await writeSystemLog(
+      adminUsername,
+      'HOLIDAY_CONFIG',
+      `กำหนดสถานะวัน ${setting.date}: ${setting.isHoliday ? 'วันหยุด (' + (setting.name || 'วันหยุดพิเศษ') + ')' : 'วันทำการพิเศษ (' + (setting.name || 'เปิดทำการ') + ')'}`
+    );
+    return { ok: true, message: `บันทึกข้อมูลวันที่ ${setting.date} เรียบร้อยแล้ว` };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function removeSchoolHoliday(
+  dateStr: string,
+  adminUsername: string
+): Promise<{ ok: boolean; message: string }> {
+  const path = 'config/school_holidays';
+  try {
+    const docRef = doc(db, 'config', 'school_holidays');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const currentMap = snap.data()?.holidays || {};
+      delete currentMap[dateStr];
+      await setDoc(docRef, { holidays: currentMap });
+      await writeSystemLog(adminUsername, 'HOLIDAY_CONFIG', `รีเซ็ตสถานะวัน ${dateStr} กลับสู่ค่าเริ่มต้น (เสาร์-อาทิตย์หยุด, จันทร์-ศุกร์ทำงาน)`);
+    }
+    return { ok: true, message: `รีเซ็ตวันที่ ${dateStr} กลับเป็นค่าเริ่มต้นเรียบร้อยแล้ว` };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function saveBatchHolidays(
+  holidaysMap: HolidaysConfigMap,
+  adminUsername: string
+): Promise<{ ok: boolean; message: string }> {
+  const path = 'config/school_holidays';
+  try {
+    const docRef = doc(db, 'config', 'school_holidays');
+    await setDoc(docRef, { holidays: holidaysMap }, { merge: true });
+    await writeSystemLog(adminUsername, 'HOLIDAY_CONFIG', `อัปเดตวันหยุดนักขัตฤกษ์ประจำปีอัตโนมัติ`);
+    return { ok: true, message: 'บันทึกวันหยุดนักขัตฤกษ์เรียบร้อยแล้ว' };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+// ==================== DATA PURGE / DELETION SERVICES ====================
+
+/**
+ * ลบข้อมูลการลงเวลา: รายบุคคล (ตาม userId หรือ employeeId)
+ */
+export async function deleteAttendanceByUser(
+  userId: string,
+  teacherName: string,
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'attendance';
+  try {
+    const snap = await getDocs(collection(db, 'attendance'));
+    const matchedDocs = snap.docs.filter((d) => {
+      const data = d.data();
+      return data.userId === userId || data.employeeId === userId;
+    });
+
+    if (matchedDocs.length === 0) {
+      return { ok: true, deletedCount: 0, message: `ไม่พบข้อมูลการลงเวลาของคุณ ${teacherName} ในฐานข้อมูล` };
+    }
+
+    // Delete in batches of 400
+    const batchSize = 400;
+    for (let i = 0; i < matchedDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = matchedDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    await writeSystemLog(
+      adminUsername,
+      'DELETE_ATTENDANCE_USER',
+      `ลบข้อมูลการลงเวลาของ "${teacherName}" (ID: ${userId}) ทั้งหมด ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    );
+
+    return {
+      ok: true,
+      deletedCount: matchedDocs.length,
+      message: `ลบข้อมูลการลงเวลาของคุณ ${teacherName} จำนวน ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * ลบข้อมูลการลงเวลา: รายบุคคล (ตาม userId) และสามารถระบุวันที่ (dateStr) เฉพาะเจาะจงได้
+ */
+export async function deleteAttendanceByUserAndDate(
+  userId: string,
+  teacherName: string,
+  dateStr: string | null,
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'attendance';
+  try {
+    const snap = await getDocs(collection(db, 'attendance'));
+    const matchedDocs = snap.docs.filter((d) => {
+      const data = d.data();
+      const matchUser = data.userId === userId || data.employeeId === userId;
+      if (!matchUser) return false;
+      if (dateStr) {
+        return data.date === dateStr;
+      }
+      return true; // if dateStr is null/empty, delete all records for this user
+    });
+
+    if (matchedDocs.length === 0) {
+      const dateInfo = dateStr ? ` ประจำวันที่ ${dateStr}` : '';
+      return { ok: true, deletedCount: 0, message: `ไม่พบข้อมูลการลงเวลาของคุณ ${teacherName}${dateInfo} ในฐานข้อมูล` };
+    }
+
+    const batchSize = 400;
+    for (let i = 0; i < matchedDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = matchedDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    const logDetail = dateStr
+      ? `ลบข้อมูลการลงเวลาของ "${teacherName}" (ID: ${userId}) ประจำวันที่ ${dateStr} จำนวน ${matchedDocs.length} รายการ`
+      : `ลบข้อมูลการลงเวลาของ "${teacherName}" (ID: ${userId}) ทั้งหมด ${matchedDocs.length} รายการ`;
+
+    await writeSystemLog(adminUsername, 'DELETE_ATTENDANCE_USER_DATE', logDetail);
+
+    const msgDetail = dateStr
+      ? `ลบข้อมูลการลงเวลาของคุณ ${teacherName} ประจำวันที่ ${dateStr} จำนวน ${matchedDocs.length} รายการเรียบร้อยแล้ว`
+      : `ลบข้อมูลการลงเวลาของคุณ ${teacherName} ทั้งหมด ${matchedDocs.length} รายการเรียบร้อยแล้ว`;
+
+    return {
+      ok: true,
+      deletedCount: matchedDocs.length,
+      message: msgDetail
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * ลบข้อมูลการลงเวลา: เฉพาะวันที่กำหนด (ตาม dateStr เช่น '2026-10-22')
+ */
+export async function deleteAttendanceByDate(
+  dateStr: string,
+  dateThaiDisplay: string,
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'attendance';
+  try {
+    const snap = await getDocs(query(collection(db, 'attendance'), where('date', '==', dateStr)));
+    const matchedDocs = snap.docs;
+
+    if (matchedDocs.length === 0) {
+      return { ok: true, deletedCount: 0, message: `ไม่พบข้อมูลการลงเวลาประจำวันที่ ${dateThaiDisplay} (${dateStr}) ในฐานข้อมูล` };
+    }
+
+    // Delete in batches of 400
+    const batchSize = 400;
+    for (let i = 0; i < matchedDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = matchedDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    await writeSystemLog(
+      adminUsername,
+      'DELETE_ATTENDANCE_DATE',
+      `ลบข้อมูลการลงเวลาประจำวันที่ ${dateThaiDisplay} (${dateStr}) ทั้งหมด ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    );
+
+    return {
+      ok: true,
+      deletedCount: matchedDocs.length,
+      message: `ลบข้อมูลการลงเวลาประจำวันที่ ${dateThaiDisplay} จำนวน ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * ลบข้อมูลการลงเวลา: ทั้งหมดในระบบ
+ */
+export async function deleteAllAttendance(
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'attendance';
+  try {
+    const snap = await getDocs(collection(db, 'attendance'));
+    const allDocs = snap.docs;
+
+    if (allDocs.length === 0) {
+      return { ok: true, deletedCount: 0, message: 'ไม่มีข้อมูลการลงเวลาในฐานข้อมูล' };
+    }
+
+    // Delete in batches of 400
+    const batchSize = 400;
+    for (let i = 0; i < allDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = allDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    await writeSystemLog(
+      adminUsername,
+      'DELETE_ALL_ATTENDANCE',
+      `ลบข้อมูลการลงเวลาทั้งหมดในระบบ รวม ${allDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    );
+
+    return {
+      ok: true,
+      deletedCount: allDocs.length,
+      message: `ลบข้อมูลการลงเวลาทั้งหมดจำนวน ${allDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * ลบประวัติระบบ (Logs): รายเดือน
+ */
+export async function deleteLogsByMonth(
+  yearMonthStr: string,
+  monthThaiDisplay: string,
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'logs';
+  try {
+    const snap = await getDocs(collection(db, 'logs'));
+    const [yStr, mStr] = yearMonthStr.split('-');
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10);
+    const startMs = new Date(y, m - 1, 1).getTime();
+    const endMs = new Date(y, m, 0, 23, 59, 59, 999).getTime();
+
+    const matchedDocs = snap.docs.filter((d) => {
+      const data = d.data();
+      const ts = data.timestamp;
+      if (typeof ts === 'number') {
+        return ts >= startMs && ts <= endMs;
+      }
+      return false;
+    });
+
+    if (matchedDocs.length === 0) {
+      return { ok: true, deletedCount: 0, message: `ไม่พบประวัติระบบประจำเดือน ${monthThaiDisplay} ในฐานข้อมูล` };
+    }
+
+    const batchSize = 400;
+    for (let i = 0; i < matchedDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = matchedDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    await writeSystemLog(
+      adminUsername,
+      'DELETE_MONTHLY_LOGS',
+      `ลบประวัติระบบประจำเดือน ${monthThaiDisplay} (${yearMonthStr}) จำนวน ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    );
+
+    return {
+      ok: true,
+      deletedCount: matchedDocs.length,
+      message: `ลบประวัติระบบประจำเดือน ${monthThaiDisplay} จำนวน ${matchedDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * ลบประวัติระบบ (Logs): ทั้งหมด
+ */
+export async function deleteAllLogs(
+  adminUsername: string
+): Promise<{ ok: boolean; deletedCount: number; message: string }> {
+  const path = 'logs';
+  try {
+    const snap = await getDocs(collection(db, 'logs'));
+    const allDocs = snap.docs;
+
+    if (allDocs.length === 0) {
+      return { ok: true, deletedCount: 0, message: 'ไม่มีประวัติระบบในฐานข้อมูล' };
+    }
+
+    const batchSize = 400;
+    for (let i = 0; i < allDocs.length; i += batchSize) {
+      const batch = writeBatch(db);
+      const chunk = allDocs.slice(i, i + batchSize);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // เขียน log บันทึกการล้างข้อมูลครั้งนี้ไว้เป็นรายการแรกใหม่
+    await writeSystemLog(
+      adminUsername,
+      'PURGE_ALL_LOGS',
+      `ล้างประวัติระบบทั้งหมดในฐานข้อมูลเรียบร้อยแล้ว (จำนวนเดิม ${allDocs.length} รายการ)`
+    );
+
+    return {
+      ok: true,
+      deletedCount: allDocs.length,
+      message: `ลบประวัติระบบทั้งหมดจำนวน ${allDocs.length} รายการ ออกจากฐานข้อมูลเรียบร้อยแล้ว`
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+

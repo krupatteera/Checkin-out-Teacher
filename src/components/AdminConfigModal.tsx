@@ -169,29 +169,29 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
+      <div className="relative w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
-              <Settings className="w-6 h-6" />
+              <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <h3 className="font-bold text-lg">ตั้งค่าระบบและขอบเขตพิกัดโรงเรียน</h3>
-              <p className="text-xs text-purple-100">กำหนดชื่อหน่วยงาน, เกณฑ์เวลา และรัศมีลงเวลา</p>
+              <h3 className="font-bold text-base sm:text-lg">ตั้งค่าระบบและขอบเขตพิกัดโรงเรียน</h3>
+              <p className="text-[11px] sm:text-xs text-purple-100">กำหนดชื่อหน่วยงาน, เกณฑ์เวลา และรัศมีลงเวลา</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-white/80 hover:text-white hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+            className="p-1.5 sm:p-2 text-white/80 hover:text-white hover:bg-white/20 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content Layout */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Left Column: Form Fields */}
             <div className="space-y-4">
@@ -283,6 +283,20 @@ export const AdminConfigModal: React.FC<AdminConfigModalProps> = ({
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono font-bold"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>LINE Notify Access Token</span>
+                  <span className="text-[10px] text-purple-600 font-normal">แจ้งเตือนเมื่อครูลงเวลาสายอัตโนมัติ</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.lineNotifyToken || ''}
+                  onChange={(e) => setFormData({ ...formData, lineNotifyToken: e.target.value })}
+                  placeholder="เช่น tK3x91... (เว้นว่างหากไม่ต้องการใช้งาน)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-sm bg-slate-50/50 font-mono"
+                />
               </div>
 
               {/* Admin 6-Digit PIN Update */}

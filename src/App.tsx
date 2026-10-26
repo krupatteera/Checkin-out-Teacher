@@ -4,7 +4,6 @@ import {
   Lock,
   User,
   KeyRound,
-  ShieldCheck,
   Smartphone,
   MapPin,
   Clock,
@@ -16,9 +15,9 @@ import {
   RefreshCw,
   Menu,
   Sparkles,
-  Camera,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Eye,
   EyeOff,
   UserCheck,
@@ -29,7 +28,10 @@ import {
   Upload,
   Loader2,
   Check,
-  GraduationCap
+  GraduationCap,
+  FileText,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { SchoolConfig, UserAccount, AttendanceRecord } from './types';
 import {
@@ -41,6 +43,8 @@ import {
   getUserRecentHistory,
   saveAttendanceRecord,
   getAllUsersList,
+  getSchoolHolidays,
+  subscribeSchoolHolidays,
   DEFAULT_CONFIG
 } from './firebase';
 import { getOrGenerateBluetoothMac, getDeviceInfoLabel } from './utils/deviceMac';
@@ -53,6 +57,23 @@ import { AdminUsersModal } from './components/AdminUsersModal';
 import { AdminPinModal } from './components/AdminPinModal';
 import { AdminReports } from './components/AdminReports';
 import { Navigation } from './components/Navigation';
+import { TeacherReport, formatTableLeaveDisplay, formatTableOfficialDisplay } from './components/TeacherReport';
+import { fetchPreciseGpsPosition } from './utils/gpsPrecision';
+import { AdminHolidaysModal } from './components/AdminHolidaysModal';
+import { AdminDeleteDataModal } from './components/AdminDeleteDataModal';
+import { TeacherDashboard } from './components/TeacherDashboard';
+import { evaluateDayHolidayStatus } from './components/TeacherReport';
+import { TeacherLeaveModal } from './components/TeacherLeaveModal';
+import { TeacherOfficialModal } from './components/TeacherOfficialModal';
+import {
+  getInternetNow,
+  getInternetIsoDate,
+  getInternetTimeString,
+  getInternetClockParts,
+  isInternetTimeSynchronized,
+  getInternetTimeSource,
+  syncInternetTime
+} from './utils/internetTime';
 
 // Calculate distance in meters between two coordinates (Haversine Formula)
 function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -77,13 +98,14 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
 
   // Active view tab
-  const [currentTab, setCurrentTab] = useState<'home' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-logs'>('home');
+  const [currentTab, setCurrentTab] = useState<'teacher-dashboard' | 'home' | 'teacher-report' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-logs'>('teacher-dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Attendance user data (Teachers only)
   const [todaySummary, setTodaySummary] = useState({ in: '--:--', out: '--:--', leave: '', official: '' });
   const [userHistory, setUserHistory] = useState<AttendanceRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [holidaysMap, setHolidaysMap] = useState<import('./types').HolidaysConfigMap>({});
 
   // Real-time GPS tracker state
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -91,6 +113,8 @@ export default function App() {
   const [gpsDistance, setGpsDistance] = useState<number | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const lastGpsUpdateRef = useRef<number>(0);
+  const bestAccuracyRef = useRef<number>(9999);
 
   // Teacher Login Form State (User & Password)
   const [loginUsername, setLoginUsername] = useState(() => localStorage.getItem('saved_teacher_username') || '');
@@ -109,43 +133,36 @@ export default function App() {
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [usersModalOpen, setUsersModalOpen] = useState(false);
+  const [holidaysModalOpen, setHolidaysModalOpen] = useState(false);
+  const [deleteDataModalOpen, setDeleteDataModalOpen] = useState(false);
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [officialModalOpen, setOfficialModalOpen] = useState(false);
 
-  // Admin filter dates
-  const todayIso = new Date().toISOString().split('T')[0];
-  const [selectedAdminDate, setSelectedAdminDate] = useState(todayIso);
-  const currentMonthIso = todayIso.substring(0, 7);
-  const [selectedAdminMonth, setSelectedAdminMonth] = useState(currentMonthIso);
+  // Admin filter dates (Synchronized via Internet Time)
+  const [selectedAdminDate, setSelectedAdminDate] = useState(() => getInternetIsoDate());
+  const [selectedAdminMonth, setSelectedAdminMonth] = useState(() => getInternetIsoDate().substring(0, 7));
 
   // Device Bluetooth MAC Address
   const currentDeviceMac = getOrGenerateBluetoothMac();
   const deviceLabel = getDeviceInfoLabel();
 
-  // Current Academic Year (ปีการศึกษา)
+  // Current Academic Year (ปีการศึกษา) derived from Internet Time
   const currentAcademicYear = config.academicYear || (() => {
-    const now = new Date();
+    const now = getInternetNow();
     const beYear = now.getFullYear() + 543;
     const m = now.getMonth() + 1; // 1-12
     return String(m >= 5 ? beYear : beYear - 1);
   })();
 
-  // Clock runner
+  // Clock runner - Synchronized via Internet Time (Immune to device clock modification)
   useEffect(() => {
     const updateTime = () => {
-      const now = new Date();
-      const fullTime = now.toLocaleTimeString('th-TH', { hour12: false });
-      const parts = fullTime.split(':');
+      const parts = getInternetClockParts();
       setTimeString({
-        hourMin: `${parts[0] || '00'}:${parts[1] || '00'}`,
-        sec: parts[2] || '00'
+        hourMin: parts.hourMin,
+        sec: parts.sec
       });
-
-      const thaiMonths = [
-        'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-      ];
-      const thaiDays = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
-      const dateText = `${thaiDays[now.getDay()]}ที่ ${now.getDate()} ${thaiMonths[now.getMonth()]} พ.ศ. ${now.getFullYear() + 543}`;
-      setThaiDateString(dateText);
+      setThaiDateString(parts.thaiDate);
     };
 
     updateTime();
@@ -157,8 +174,13 @@ export default function App() {
   useEffect(() => {
     const initApp = async () => {
       try {
+        // Sync internet time from authority before querying attendance
+        await syncInternetTime().catch(() => {});
+
         const loadedConfig = await getSchoolConfig();
         setConfig(loadedConfig);
+        const holidays = await getSchoolHolidays();
+        setHolidaysMap(holidays);
 
         // Check if admin exists in database, if not create default admin account
         const adminCheck = await findUserByUsername('admin');
@@ -196,6 +218,14 @@ export default function App() {
     initApp();
   }, []);
 
+  // Real-time synchronization of school holidays & working day overrides
+  useEffect(() => {
+    const unsubscribe = subscribeSchoolHolidays((latestMap) => {
+      setHolidaysMap(latestMap);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Ensure Admin never lands on teacher clock-in view
   useEffect(() => {
     if (currentUser?.role === 'admin' && currentTab === 'home') {
@@ -203,55 +233,134 @@ export default function App() {
     }
   }, [currentUser, currentTab]);
 
-  // GPS Accuracy Tracker: continuously refresh GPS when teacher is on home screen
-  const refreshGpsLocation = () => {
+  // GPS Accuracy Tracker: multi-sample convergence to acquire real satellite coordinates
+  const refreshGpsLocation = async (showSpinner = true) => {
     if (!navigator.geolocation) {
       setGpsError('เบราว์เซอร์ไม่รองรับ GPS');
       return;
     }
 
-    setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
+    if (showSpinner) {
+      setGpsLoading(true);
+    }
+
+    try {
+      // 1. Run multi-sample convergence to acquire pinpoint satellite fix
+      const precise = await fetchPreciseGpsPosition(4500, 15);
+      const lat = precise.lat;
+      const lng = precise.lng;
+      const acc = precise.accuracy;
+
+      bestAccuracyRef.current = acc;
+      lastGpsUpdateRef.current = Date.now();
+
+      setGpsCoords({ lat, lng });
+      setGpsAccuracy(acc);
+      setGpsError(null);
+
+      const centerLat = config.centerLat || 17.413840;
+      const centerLng = config.centerLng || 102.787260;
+      const dist = calculateDistanceMeters(lat, lng, centerLat, centerLng);
+      setGpsDistance(dist);
+    } catch (err) {
+      console.warn('GPS precision fetch fallback:', err);
+      // Fallback to one-shot high accuracy
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = Math.round(pos.coords.accuracy || 20);
+          bestAccuracyRef.current = acc;
+          lastGpsUpdateRef.current = Date.now();
+
+          setGpsCoords({ lat, lng });
+          setGpsAccuracy(acc);
+          setGpsError(null);
+
+          const centerLat = config.centerLat || 17.413840;
+          const centerLng = config.centerLng || 102.787260;
+          const dist = calculateDistanceMeters(lat, lng, centerLat, centerLng);
+          setGpsDistance(dist);
+        },
+        (e) => {
+          console.warn('GPS error:', e);
+          setGpsError('ไม่สามารถดึงพิกัด GPS ได้ กรุณาเปิดสิทธิ์การเข้าถึงตำแหน่งและเปิดบริการ GPS');
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 6000,
+          maximumAge: 0
+        }
+      );
+    } finally {
+      if (showSpinner) {
+        setGpsLoading(false);
+      }
+    }
+  };
+
+  // Continuous GPS Tracker: watchPosition with precision spike filtering
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'admin' || currentTab !== 'home') return;
+    if (!navigator.geolocation) return;
+
+    // 1. Initial precision refresh
+    refreshGpsLocation(false);
+
+    // 2. watchPosition for live hardware GPS coordinates stream
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        const acc = Math.round(pos.coords.accuracy || 15);
-        setGpsCoords({ lat, lng });
-        setGpsAccuracy(acc);
-        setGpsError(null);
+        const acc = Math.round(pos.coords.accuracy || 20);
+        const now = Date.now();
 
-        const centerLat = config.centerLat || 17.413840;
-        const centerLng = config.centerLng || 102.787260;
-        const dist = calculateDistanceMeters(lat, lng, centerLat, centerLng);
-        setGpsDistance(dist);
-        setGpsLoading(false);
+        // Prevent coarse readings (e.g. 150m cell tower jump) from overriding good satellite lock
+        const isBetterOrEqual = acc <= bestAccuracyRef.current + 5;
+        const isStale = (now - lastGpsUpdateRef.current) > 15000;
+
+        if (isBetterOrEqual || isStale) {
+          bestAccuracyRef.current = acc;
+          lastGpsUpdateRef.current = now;
+
+          setGpsCoords({ lat, lng });
+          setGpsAccuracy(acc);
+          setGpsError(null);
+
+          const centerLat = config.centerLat || 17.413840;
+          const centerLng = config.centerLng || 102.787260;
+          const dist = calculateDistanceMeters(lat, lng, centerLat, centerLng);
+          setGpsDistance(dist);
+        }
       },
       (err) => {
-        console.warn('GPS error:', err);
-        setGpsLoading(false);
-        setGpsError('ไม่สามารถดึงพิกัด GPS ได้ กรุณาเปิดสิทธิ์การเข้าถึงตำแหน่ง');
+        console.warn('GPS watch error:', err);
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 3000
+        maximumAge: 0,
+        timeout: 10000
       }
     );
-  };
 
-  useEffect(() => {
-    if (currentUser && currentUser.role !== 'admin' && currentTab === 'home') {
-      refreshGpsLocation();
-      const interval = setInterval(refreshGpsLocation, 12000);
-      return () => clearInterval(interval);
-    }
+    // 3. Periodic sanity check every 15s to keep lock fresh if silent
+    const interval = setInterval(() => {
+      if (!gpsCoords || (Date.now() - lastGpsUpdateRef.current) > 15000) {
+        refreshGpsLocation(false);
+      }
+    }, 15000);
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      clearInterval(interval);
+    };
   }, [currentUser, currentTab, config]);
 
   // Fetch user attendance status
   const fetchUserAttendance = async (userId: string) => {
     setHistoryLoading(true);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getInternetIsoDate();
       const [statusRes, historyRes] = await Promise.all([
         getUserStatusToday(userId, todayStr),
         getUserRecentHistory(userId)
@@ -394,18 +503,32 @@ export default function App() {
       return;
     }
 
-    // Check duplicate check-in
-    if (action === 'IN' && todaySummary.in !== '--:--') {
-      Swal.fire('ลงเวลาเข้างานแล้ว', `คุณได้ลงเวลาเข้างานไปแล้วเมื่อ ${todaySummary.in} น.`, 'info');
+    // Check if today is a holiday (using internet date + fresh server holiday data)
+    const todayStr = getInternetIsoDate();
+    let currentHolidays = holidaysMap;
+    try {
+      const freshHolidays = await getSchoolHolidays(true);
+      if (freshHolidays && Object.keys(freshHolidays).length > 0) {
+        currentHolidays = freshHolidays;
+        setHolidaysMap(freshHolidays);
+      }
+    } catch {
+      // fallback to current in-memory holidaysMap
+    }
+
+    const holidayStatus = evaluateDayHolidayStatus(todayStr, currentHolidays);
+    if (holidayStatus.isHoliday) {
+      Swal.fire({
+        title: 'ไม่อนุญาตให้ลงเวลา!',
+        text: `วันนี้เป็นวันหยุด (${holidayStatus.holidayName}) ระบบไม่เปิดให้ลงเวลาปฏิบัติงาน`,
+        icon: 'error',
+        confirmButtonColor: '#7C3AED'
+      });
       return;
     }
 
-    // Check check-out constraints
+    // Check check-out constraints (Direct clock-out without requiring clock-in)
     if (action === 'OUT') {
-      if (todaySummary.in === '--:--') {
-        Swal.fire('ไม่อนุญาตให้ลงเวลากลับ', 'กรุณากด "ลงเวลาเข้างาน" ให้เรียบร้อยก่อนลงเวลากลับ', 'warning');
-        return;
-      }
       if (todaySummary.out !== '--:--') {
         Swal.fire('ลงเวลากลับแล้ว', `คุณได้ลงเวลากลับไปแล้วเมื่อ ${todaySummary.out} น.`, 'info');
         return;
@@ -433,48 +556,78 @@ export default function App() {
     }
 
     // 3. Validate GPS Position & Radius
-    if (!gpsCoords || gpsDistance === null) {
+    const allowedRadius = config.radius || 150;
+    let effectiveDist = gpsDistance;
+    let effectiveCoords = gpsCoords;
+    let effectiveAcc = gpsAccuracy || 20;
+
+    // Calculate accuracy buffer: compensates for minor hardware GNSS drift (max 25m)
+    let accuracyTolerance = Math.min(effectiveAcc * 0.45, 25);
+
+    // If no coordinates yet, or currently outside boundary, or coarse accuracy (> 25m), run high-precision convergence
+    if (!effectiveCoords || effectiveDist === null || effectiveDist > (allowedRadius + accuracyTolerance) || effectiveAcc > 25) {
+      try {
+        const precise = await fetchPreciseGpsPosition(4000, 15);
+        const centerLat = config.centerLat || 17.413840;
+        const centerLng = config.centerLng || 102.787260;
+        effectiveCoords = { lat: precise.lat, lng: precise.lng };
+        effectiveAcc = precise.accuracy;
+        effectiveDist = calculateDistanceMeters(precise.lat, precise.lng, centerLat, centerLng);
+
+        setGpsCoords(effectiveCoords);
+        setGpsAccuracy(effectiveAcc);
+        setGpsDistance(effectiveDist);
+        bestAccuracyRef.current = effectiveAcc;
+        lastGpsUpdateRef.current = Date.now();
+        accuracyTolerance = Math.min(effectiveAcc * 0.45, 25);
+      } catch (e) {
+        // use existing readings if convergence fails
+      }
+    }
+
+    if (!effectiveCoords || effectiveDist === null) {
       Swal.fire({
         title: 'กำลังค้นหาพิกัด GPS',
-        text: 'ระบบกำลังดึงพิกัดดาวเทียม กรุณารอสักครู่หรือกดปุ่ม "รีเฟรชพิกัด" ด้านบน',
+        text: 'ระบบกำลังดึงพิกัดดาวเทียม กรุณารอสักครู่หรือกดปุ่ม "ปรับเทียบพิกัด" ด้านบน',
         icon: 'info',
         confirmButtonColor: '#7C3AED'
       });
-      refreshGpsLocation();
+      refreshGpsLocation(true);
       return;
     }
 
-    const allowedRadius = config.radius || 150;
-    if (gpsDistance > allowedRadius) {
+    if (effectiveDist > (allowedRadius + accuracyTolerance)) {
       Swal.fire({
         title: 'อยู่นอกพื้นที่โรงเรียน!',
         html: `
           <div class="text-left text-xs text-slate-600 space-y-2">
             <p class="text-rose-600 font-bold">ท่านอยู่ห่างจากโรงเรียนเกินระยะที่กำหนด</p>
             <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-200">
-              <p>ระยะห่างปัจจุบัน: <b>${gpsDistance} เมตร</b></p>
+              <p>ระยะห่างปัจจุบัน: <b>${effectiveDist} เมตร</b></p>
               <p>รัศมีที่อนุญาต: <b>ไม่เกิน ${allowedRadius} เมตร</b></p>
-              <p class="text-[10px] text-slate-500 mt-1">ความแม่นยำพิกัด: ±${gpsAccuracy || 15} ม.</p>
+              <p class="text-[10px] text-slate-500 mt-1">ความแม่นยำดาวเทียม: ±${effectiveAcc} ม.</p>
             </div>
-            <p class="text-[11px] text-slate-500">กรุณาเข้าสู่บริเวณพื้นที่ ${config.orgName} ก่อนทำการลงเวลา</p>
+            <p class="text-[11px] text-slate-500">
+              💡 แนะนำ: หากท่านอยู่ในบริเวณโรงเรียนแล้ว ให้กดปุ่ม <b>"ปรับเทียบพิกัดดาวเทียม"</b> ด้านบน หรือออกสู่ที่โล่งแจ้งเพื่อช่วยให้อุปกรณ์ล็อกดาวเทียมได้แม่นยำ
+            </p>
           </div>
         `,
         icon: 'warning',
         confirmButtonColor: '#7C3AED'
       });
+      refreshGpsLocation(true);
       return;
     }
 
-    // 4. Save Attendance Record directly with GPS + Bluetooth MAC
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    // 4. Save Attendance Record directly with GPS + Bluetooth MAC + Internet Time
+    const now = getInternetNow();
+    const dateStr = getInternetIsoDate();
+    const timeStr = getInternetTimeString();
+    const clockParts = getInternetClockParts();
 
-    const isLate = Boolean(action === 'IN' && config.lateTime && timeStr > config.lateTime);
     const isEarly = Boolean(action === 'OUT' && config.earlyTime && timeStr < config.earlyTime);
 
     let finalNote = '';
-    if (isLate) finalNote = 'เข้าสาย';
     if (isEarly) finalNote = 'กลับก่อนเวลา';
 
     try {
@@ -484,12 +637,12 @@ export default function App() {
         employeeName: currentUser.fullname,
         action,
         date: dateStr,
-        dateThai: thaiDateString,
+        dateThai: clockParts.thaiDate,
         time: timeStr,
-        lat: gpsCoords.lat,
-        lng: gpsCoords.lng,
-        distance: gpsDistance,
-        isLate,
+        lat: effectiveCoords.lat,
+        lng: effectiveCoords.lng,
+        distance: effectiveDist,
+        isLate: false,
         isEarly,
         note: finalNote,
         macAddress: currentDeviceMac,
@@ -497,15 +650,15 @@ export default function App() {
       });
 
       await Swal.fire({
-        title: action === 'IN' ? 'ลงเวลาเข้างานสำเร็จ!' : 'ลงเวลากลับสำเร็จ!',
+        title: 'ลงเวลากลับสำเร็จ!',
         html: `
           <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
             <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
-              <p class="text-sm font-bold text-purple-900">เวลา: ${timeStr} น. ${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span>' : ''} ${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span>' : ''}</p>
-              <p class="text-[11px] text-slate-500 mt-1">พิกัด GPS: ${gpsCoords.lat.toFixed(5)}, ${gpsCoords.lng.toFixed(5)} (ห่าง ร.ร. ${gpsDistance} ม.)</p>
+              <p class="text-sm font-bold text-purple-900">เวลา: ${timeStr} น. ${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span>' : '<span class="text-emerald-600 font-bold">(ตรงเวลา)</span>'}</p>
+              <p class="text-[11px] text-slate-500 mt-1">พิกัด GPS: ${effectiveCoords.lat.toFixed(5)}, ${effectiveCoords.lng.toFixed(5)} (ห่าง ร.ร. ${effectiveDist} ม.)</p>
               <p class="text-[11px] font-mono text-purple-800 mt-0.5">Bluetooth MAC: ${currentDeviceMac}</p>
             </div>
-            <p class="text-[10px] text-emerald-700 font-bold">✓ บันทึกเวลาด้วยพิกัด GPS และ Bluetooth MAC เรียบร้อยแล้ว</p>
+            <p class="text-[10px] text-emerald-700 font-bold">✓ บันทึกเวลากลับด้วยพิกัด GPS และ Bluetooth MAC เรียบร้อยแล้ว</p>
           </div>
         `,
         icon: 'success',
@@ -519,120 +672,17 @@ export default function App() {
   };
 
   // --------------------------------------------------------------------------
-  // LEAVE & OFFICIAL DUTY HANDLERS (MUTUAL EXCLUSION CHECK)
-  // When already clocked in/out today -> CANNOT LEAVE OR OFFICIAL!
+  // LEAVE & OFFICIAL DUTY MODAL OPENERS
+  // Opens dedicated reactive modals with date/period selection & internet time
   // --------------------------------------------------------------------------
-  const handleLeaveRequest = async () => {
+  const handleLeaveRequest = () => {
     if (!currentUser || currentUser.role === 'admin') return;
-
-    // Mutual exclusion check: If already clocked in or clocked out today -> CANNOT REQUEST LEAVE!
-    if (todaySummary.in !== '--:--' || todaySummary.out !== '--:--') {
-      Swal.fire({
-        title: 'ไม่สามารถแจ้งลาหยุดได้',
-        html: `
-          <div class="text-left text-xs text-slate-600 space-y-2">
-            <p class="text-rose-600 font-bold">คุณได้ลงเวลาปฏิบัติงานในวันนี้ไปแล้ว</p>
-            <p>เวลาเข้างาน: <b>${todaySummary.in} น.</b></p>
-            <p class="text-[11px] text-slate-500">
-              ตามระเบียบของระบบ เมื่อมีการลงเวลาปฏิบัติงานในวันดังกล่าวแล้ว จะไม่สามารถแจ้งลาหยุดหรือไปราชการได้
-            </p>
-          </div>
-        `,
-        icon: 'warning',
-        confirmButtonColor: '#7C3AED'
-      });
-      return;
-    }
-
-    if (todaySummary.leave) {
-      Swal.fire('แจ้งลาแล้ว', 'วันนี้คุณได้ทำการแจ้งลาหยุดไปแล้ว', 'info');
-      return;
-    }
-
-    const leaveType = prompt('เลือกประเภทการลา (ลาป่วย / ลากิจ / ลาพักผ่อน / อื่นๆ):', 'ลากิจ');
-    if (!leaveType) return;
-
-    const leaveReason = prompt('ระบุเหตุผลการลา:', 'ทำธุระส่วนตัว');
-    if (!leaveReason) return;
-
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' });
-
-    try {
-      await saveAttendanceRecord({
-        userId: currentUser.id,
-        employeeId: currentUser.username || currentUser.id,
-        employeeName: currentUser.fullname,
-        action: 'LEAVE',
-        date: dateStr,
-        dateThai: thaiDateString,
-        time: timeStr,
-        note: `${leaveType} (${leaveReason})`,
-        macAddress: currentDeviceMac,
-        timestamp: now.getTime()
-      });
-
-      Swal.fire('สำเร็จ', 'บันทึกข้อมูลการลาหยุดเรียบร้อยแล้ว', 'success');
-      fetchUserAttendance(currentUser.id);
-    } catch (err: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
-    }
+    setLeaveModalOpen(true);
   };
 
-  const handleOfficialDutyRequest = async () => {
+  const handleOfficialDutyRequest = () => {
     if (!currentUser || currentUser.role === 'admin') return;
-
-    // Mutual exclusion check: If already clocked in or clocked out today -> CANNOT GO OFFICIAL!
-    if (todaySummary.in !== '--:--' || todaySummary.out !== '--:--') {
-      Swal.fire({
-        title: 'ไม่สามารถบันทึกไปราชการได้',
-        html: `
-          <div class="text-left text-xs text-slate-600 space-y-2">
-            <p class="text-rose-600 font-bold">คุณได้ลงเวลาปฏิบัติงานในวันนี้ไปแล้ว</p>
-            <p>เวลาเข้างาน: <b>${todaySummary.in} น.</b></p>
-            <p class="text-[11px] text-slate-500">
-              ตามระเบียบของระบบ เมื่อมีการลงเวลาปฏิบัติงานในวันดังกล่าวแล้ว จะไม่สามารถบันทึกไปราชการหรือแจ้งลาได้
-            </p>
-          </div>
-        `,
-        icon: 'warning',
-        confirmButtonColor: '#7C3AED'
-      });
-      return;
-    }
-
-    if (todaySummary.official) {
-      Swal.fire('บันทึกแล้ว', 'วันนี้คุณได้บันทึกไปราชการไปแล้ว', 'info');
-      return;
-    }
-
-    const detail = prompt('ระบุรายละเอียดการไปราชการ (เช่น ประชุม / อบรม / นิเทศ):', 'ประชุมราชการ');
-    if (!detail) return;
-
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' });
-
-    try {
-      await saveAttendanceRecord({
-        userId: currentUser.id,
-        employeeId: currentUser.username || currentUser.id,
-        employeeName: currentUser.fullname,
-        action: 'OFFICIAL',
-        date: dateStr,
-        dateThai: thaiDateString,
-        time: timeStr,
-        note: detail,
-        macAddress: currentDeviceMac,
-        timestamp: now.getTime()
-      });
-
-      Swal.fire('สำเร็จ', 'บันทึกข้อมูลการไปราชการเรียบร้อยแล้ว', 'success');
-      fetchUserAttendance(currentUser.id);
-    } catch (err: unknown) {
-      Swal.fire('เกิดข้อผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
-    }
+    setOfficialModalOpen(true);
   };
 
   // --------------------------------------------------------------------------
@@ -710,17 +760,11 @@ export default function App() {
             <div className="md:col-span-7 p-5 sm:p-7 md:p-8 flex flex-col justify-center">
               <div className="mb-4 sm:mb-6 text-center sm:text-left">
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-50 text-[#7C3AED] text-xs font-bold border border-purple-200">
-                    <Lock className="w-3.5 h-3.5" /> เข้าสู่ระบบ
-                  </div>
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 text-xs font-bold border border-amber-200">
                     <GraduationCap className="w-3.5 h-3.5 text-amber-600" /> ปีการศึกษา {currentAcademicYear}
                   </div>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800">เข้าสู่ระบบสำหรับครูและบุคลากร</h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  กรอกชื่อผู้ใช้งาน (User) และรหัสผ่าน (Password) เพื่อลงเวลาปฏิบัติงาน
-                </p>
               </div>
 
               {/* Login Form */}
@@ -813,8 +857,7 @@ export default function App() {
               </form>
 
               {/* Register link */}
-              <div className="mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs gap-2 sm:gap-3">
-                <span className="text-slate-500">ครูใหม่ หรือยังไม่มีบัญชีในระบบ?</span>
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-slate-100 flex items-center justify-end text-xs">
                 <button
                   type="button"
                   onClick={() => setRegisterModalOpen(true)}
@@ -897,55 +940,109 @@ export default function App() {
         onLogout={handleLogout}
         mobileMenuOpen={mobileMenuOpen}
         onCloseMobileMenu={() => setMobileMenuOpen(false)}
-        onOpenFaceScanner={(action) => handleDirectClock(action)}
+        onClockAction={(action) => handleDirectClock(action)}
         onOpenLeaveModal={handleLeaveRequest}
         onOpenOfficialModal={handleOfficialDutyRequest}
         onOpenConfigModal={() => setConfigModalOpen(true)}
         onOpenUsersModal={() => setUsersModalOpen(true)}
         onOpenEditProfile={() => setEditProfileModalOpen(true)}
+        onOpenHolidaysModal={() => setHolidaysModalOpen(true)}
+        onOpenDeleteDataModal={() => setDeleteDataModalOpen(true)}
+        gpsDistance={gpsDistance}
+        gpsAccuracy={gpsAccuracy}
+        onRefreshGps={() => refreshGpsLocation(true)}
       />
 
       {/* Main Layout */}
       <div className="lg:pl-72 flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-purple-100 px-4 sm:px-8 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-purple-100 px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 -ml-2 rounded-xl text-slate-600 hover:bg-purple-50 lg:hidden cursor-pointer"
+              className="p-1.5 sm:p-2 -ml-1 sm:-ml-2 rounded-xl text-slate-600 hover:bg-purple-50 lg:hidden cursor-pointer shrink-0"
               title="เปิดเมนู"
             >
-              <Menu className="w-6 h-6 text-[#7C3AED]" />
+              <Menu className="w-5 h-5 sm:w-6 sm:h-6 text-[#7C3AED]" />
             </button>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               {config.logoUrl ? (
                 <img
                   src={config.logoUrl}
                   alt="Logo"
-                  className="w-9 h-9 rounded-xl object-cover shadow-sm border border-purple-200 hidden sm:block"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover shadow-xs border border-purple-200 hidden sm:block shrink-0"
                 />
               ) : (
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#8B5CF6] text-white flex items-center justify-center hidden sm:flex shadow-sm">
-                  <School className="w-5 h-5" />
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#8B5CF6] text-white flex items-center justify-center hidden sm:flex shadow-xs shrink-0">
+                  <School className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
               )}
-              <div>
-                <h2 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight">
+              <div className="min-w-0">
+                <h2 className="text-xs sm:text-base font-extrabold text-slate-800 leading-tight truncate max-w-[110px] xs:max-w-[160px] sm:max-w-xs md:max-w-md">
                   {config.orgName}
                 </h2>
-                <p className="text-[11px] text-purple-700 font-medium hidden sm:block">
+                <p className="text-[10px] sm:text-[11px] text-purple-700 font-medium hidden sm:block truncate">
                   {config.orgAffiliation}
                 </p>
               </div>
             </div>
           </div>
 
+          {/* Live Location Status Indicator in Header (เห็นชัดเจน โดดเด่น) */}
+          {currentUser.role !== 'admin' && (() => {
+            const allowedRadius = config.radius || 150;
+            const accuracyTolerance = Math.min((gpsAccuracy || 15) * 0.45, 25);
+            const isInRadius = gpsDistance !== null && gpsDistance <= (allowedRadius + accuracyTolerance);
+            return (
+              <div
+                onClick={() => refreshGpsLocation(true)}
+                title="คลิกเพื่อปรับเทียบพิกัดดาวเทียม GPS"
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full text-xs font-black border transition-all cursor-pointer shadow-xs select-none ${
+                  gpsDistance === null
+                    ? 'bg-slate-100 text-slate-600 border-slate-300'
+                    : isInRadius
+                    ? 'bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/30 ring-2 ring-emerald-300/60 hover:bg-emerald-600'
+                    : 'bg-rose-500 text-white border-rose-400 shadow-rose-500/30 ring-2 ring-rose-300/60 hover:bg-rose-600 animate-pulse'
+                }`}
+              >
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  {gpsDistance !== null && (
+                    <span
+                      className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        isInRadius ? 'bg-emerald-200' : 'bg-rose-200'
+                      }`}
+                    />
+                  )}
+                  <span
+                    className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                      gpsDistance === null
+                        ? 'bg-slate-400'
+                        : 'bg-white'
+                    }`}
+                  />
+                </span>
+                <span className="text-[10px] sm:text-xs font-black truncate max-w-[120px] xs:max-w-[160px] sm:max-w-none">
+                  {gpsDistance === null
+                    ? 'กำลังตรวจจับพิกัด...'
+                    : isInRadius
+                    ? `อยู่ในรัศมี (${gpsDistance} ม.) ✓`
+                    : `อยู่นอกพื้นที่ (${gpsDistance} ม.) ✕`}
+                </span>
+                {gpsAccuracy !== null && (
+                  <span className="hidden sm:inline-block text-[10px] opacity-85 font-mono">
+                    ±{gpsAccuracy}ม.
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
           {/* User Profile Pill in Header */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             <div
               onClick={() => setEditProfileModalOpen(true)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100/70 border border-purple-200 transition-all cursor-pointer group"
+              className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-purple-50 hover:bg-purple-100/70 border border-purple-200 transition-all cursor-pointer group"
             >
               <img
                 src={
@@ -955,19 +1052,19 @@ export default function App() {
                   )}&background=8B5CF6&color=fff`
                 }
                 alt="Profile"
-                className="w-7 h-7 rounded-full object-cover border border-white"
+                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover border border-white shrink-0"
               />
-              <span className="text-xs font-bold text-slate-700 group-hover:text-[#7C3AED]">
+              <span className="text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-[#7C3AED] truncate max-w-[80px] sm:max-w-[120px]">
                 {currentUser.fullname.split(' ')[0]}
               </span>
-              <span className="text-[10px] bg-purple-200/80 text-purple-900 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-[9px] sm:text-[10px] bg-purple-200/80 text-purple-900 px-1.5 sm:px-2 py-0.5 rounded-full font-bold shrink-0">
                 {currentUser.role === 'admin' ? 'Admin' : 'ครู'}
               </span>
             </div>
 
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-xl text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors cursor-pointer shrink-0"
               title="ออกจากระบบ"
             >
               <LogOut className="w-4 h-4" />
@@ -977,98 +1074,99 @@ export default function App() {
 
         {/* Admin Navigation Ribbon */}
         {currentUser.role === 'admin' && (
-          <div className="bg-white border-b border-purple-100 px-4 sm:px-8 py-2.5 overflow-x-auto flex items-center gap-2 shadow-xs z-20">
+          <div className="bg-white border-b border-purple-100 px-3 sm:px-6 lg:px-8 py-2 overflow-x-auto flex items-center gap-1.5 sm:gap-2 shadow-xs z-20">
             <button
               onClick={() => setCurrentTab('admin-dashboard')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                 currentTab === 'admin-dashboard'
                   ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
                   : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
               }`}
             >
-              <CalendarCheck className="w-4 h-4" />
+              <CalendarCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>ภาพรวมประจำวัน</span>
             </button>
 
             <button
               onClick={() => setCurrentTab('admin-summary')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                 currentTab === 'admin-summary'
                   ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
                   : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>สรุปรายบุคคล (เดือน)</span>
             </button>
 
             <button
               onClick={() => setCurrentTab('admin-map')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                 currentTab === 'admin-map'
                   ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
                   : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
               }`}
             >
-              <MapPin className="w-4 h-4" />
+              <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>แผนที่ดาวเทียม</span>
             </button>
 
             <button
               onClick={() => setUsersModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-2 cursor-pointer"
+              className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
             >
-              <Users className="w-4 h-4 text-[#8B5CF6]" />
+              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#8B5CF6]" />
               <span>จัดการสมาชิก/ครู</span>
             </button>
 
             <button
               onClick={() => setConfigModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-2 cursor-pointer"
+              className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
             >
-              <Settings className="w-4 h-4 text-[#8B5CF6]" />
+              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#8B5CF6]" />
               <span>ตั้งค่าระบบ/ขอบเขต</span>
             </button>
 
             <button
               onClick={() => setCurrentTab('admin-logs')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                 currentTab === 'admin-logs'
                   ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
                   : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
               }`}
             >
-              <FileClock className="w-4 h-4" />
+              <FileClock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span>ประวัติระบบ (Logs)</span>
             </button>
           </div>
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
+        <main className="flex-1 p-3 sm:p-5 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
           {/* TEACHER HOME VIEW (Attendance Clocking Dashboard) */}
           {currentUser.role !== 'admin' && currentTab === 'home' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
               {/* Left Column: Clock & Teacher Profile Card */}
-              <div className="lg:col-span-5 space-y-6">
-                <div className="bg-white rounded-[32px] overflow-hidden shadow-xl shadow-purple-950/5 border border-purple-100">
+              <div className="lg:col-span-5 space-y-4 sm:space-y-6">
+                <div className="bg-white rounded-2xl sm:rounded-3xl lg:rounded-[32px] overflow-hidden shadow-xl shadow-purple-950/5 border border-purple-100">
                   {/* Digital Clock Banner */}
-                  <div className="bg-gradient-to-br from-[#6D28D9] via-[#7C3AED] to-[#8B5CF6] p-8 text-white text-center relative overflow-hidden">
-                    <div className="text-[11px] font-bold tracking-widest uppercase bg-white/20 text-purple-100 px-3 py-1 rounded-full border border-white/20 inline-block mb-3">
-                      เวลาประเทศไทย (GMT+7)
+                  <div className="bg-gradient-to-br from-[#6D28D9] via-[#7C3AED] to-[#8B5CF6] p-5 sm:p-7 md:p-8 text-white text-center relative overflow-hidden">
+                    <div className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold tracking-wide bg-white/20 text-purple-100 px-3 py-1 rounded-full border border-white/25 mb-2 sm:mb-3 backdrop-blur-md shadow-2xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <span>เวลามาตรฐานอินเทอร์เน็ต (อัตโนมัติ)</span>
                     </div>
-                    <div className="flex items-baseline justify-center font-mono font-extrabold text-5xl sm:text-6xl tracking-tight drop-shadow-md">
+                    <div className="flex items-baseline justify-center font-mono font-extrabold text-4xl sm:text-5xl md:text-6xl tracking-tight drop-shadow-md">
                       <span>{timeString.hourMin}</span>
-                      <span className="text-2xl sm:text-3xl opacity-80 ml-1">:{timeString.sec}</span>
+                      <span className="text-xl sm:text-2xl md:text-3xl opacity-80 ml-1">:{timeString.sec}</span>
                     </div>
-                    <div className="text-xs sm:text-sm text-purple-100 font-semibold mt-2 opacity-95">
+                    <div className="text-xs sm:text-sm text-purple-100 font-semibold mt-1.5 sm:mt-2 opacity-95">
                       {thaiDateString}
                     </div>
                   </div>
 
                   {/* Profile Info */}
-                  <div className="p-6 text-center -mt-8 relative z-10">
-                    <div className="relative inline-block mb-3">
+                  <div className="p-4 sm:p-6 text-center -mt-6 sm:-mt-8 relative z-10">
+                    <div className="relative inline-block mb-2.5 sm:mb-3">
                       <img
                         src={
                           currentUser.img ||
@@ -1077,7 +1175,7 @@ export default function App() {
                           )}&background=8B5CF6&color=fff`
                         }
                         alt="Profile"
-                        className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-lg mx-auto bg-white"
+                        className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-4 border-white shadow-lg mx-auto bg-white"
                       />
                       <button
                         onClick={() => setEditProfileModalOpen(true)}
@@ -1088,358 +1186,420 @@ export default function App() {
                       </button>
                     </div>
 
-                    <h3 className="text-lg font-extrabold text-slate-800">{currentUser.fullname}</h3>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    <h3 className="text-base sm:text-lg font-extrabold text-slate-800">{currentUser.fullname}</h3>
+                    <p className="text-[11px] sm:text-xs text-slate-500 font-medium mt-0.5">
                       {currentUser.position || 'ครูผู้สอน'} • {currentUser.department || 'ฝ่ายวิชาการ'}
                     </p>
 
                     {/* Bound Device Bluetooth MAC Info */}
-                    <div className="mt-5 p-3 rounded-2xl bg-purple-50/80 border border-purple-200/80 text-left text-xs flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                    <div className="mt-4 sm:mt-5 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-purple-50/80 border border-purple-200/80 text-left text-xs flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <Bluetooth className="w-4 h-4 text-[#7C3AED] shrink-0" />
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                        <div className="min-w-0">
+                          <div className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-wider">
                             Bluetooth MAC ที่ผูกไว้
                           </div>
-                          <div className="font-mono font-bold text-purple-900 text-xs">
+                          <div className="font-mono font-bold text-purple-900 text-[11px] sm:text-xs truncate">
                             {currentUser.registeredMac || currentDeviceMac}
                           </div>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full shrink-0">
                         {deviceLabel}
                       </span>
                     </div>
 
                     {/* School Center Location & Radius Badge */}
-                    <div className="mt-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-left text-xs flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                    <div className="mt-2 sm:mt-2.5 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-200/80 text-left text-xs flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <MapPin className="w-4 h-4 text-purple-600 shrink-0" />
-                        <div>
-                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        <div className="min-w-0">
+                          <div className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                             จุดลงเวลาโรงเรียน
                           </div>
-                          <div className="font-semibold text-slate-700 text-xs truncate max-w-[190px]">
+                          <div className="font-semibold text-slate-700 text-[11px] sm:text-xs truncate max-w-[130px] sm:max-w-[190px]">
                             {config.orgName}
                           </div>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-full">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-full shrink-0">
                         รัศมี {config.radius} ม.
                       </span>
                     </div>
+
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Right Column: GPS Accuracy Status Indicator + 4 Action Cards + Recent History */}
-              <div className="lg:col-span-7 space-y-6">
-                {/* ========================================================================= */}
-                {/* 1. ตัวแสดงสถานะความแม่นยำของพิกัด GPS บนหน้าลงเวลา                           */}
-                {/* เปลี่ยนสีไอคอน MapPin ตามความแม่นยำ (สีเขียวเมื่อคลาดเคลื่อนต่ำกว่า 50 เมตร)     */}
-                {/* ========================================================================= */}
-                <div className="bg-white p-5 sm:p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* MapPin with dynamic accuracy-based color */}
-                      <div
-                        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-xs ${
-                          gpsAccuracy === null
-                            ? 'bg-slate-100 text-slate-400'
-                            : gpsAccuracy < 50
-                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                            : gpsAccuracy <= 100
-                            ? 'bg-amber-50 text-amber-600 border border-amber-200'
-                            : 'bg-rose-50 text-rose-600 border border-rose-200'
-                        }`}
-                      >
-                        <MapPin
-                          className={`w-6 h-6 transition-all ${
-                            gpsAccuracy === null
-                              ? 'text-slate-400 animate-pulse'
-                              : gpsAccuracy < 50
-                              ? 'text-emerald-500 scale-110 drop-shadow-sm'
-                              : gpsAccuracy <= 100
-                              ? 'text-amber-500'
-                              : 'text-rose-500'
-                          }`}
-                        />
-                      </div>
+              {/* Right Column: Hero Location Status Banner + GPS Accuracy Status + 4 Action Cards + Recent History */}
+              <div className="lg:col-span-7 space-y-4 sm:space-y-6">
+                {/* HERO LOCATION & RADIUS STATUS BANNER (เห็นชัดเจน โดดเด่น) */}
+                {(() => {
+                  const allowedRadius = config.radius || 150;
+                  const accuracyTolerance = Math.min((gpsAccuracy || 15) * 0.45, 25);
+                  const isInRadius = gpsDistance !== null && gpsDistance <= (allowedRadius + accuracyTolerance);
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-extrabold text-slate-800 text-sm sm:text-base">
-                            สถานะสัญญาณดาวเทียม GPS
-                          </h4>
-                          {/* Accuracy Badge */}
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors ${
-                              gpsAccuracy === null
-                                ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                : gpsAccuracy < 50
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : gpsAccuracy <= 100
-                                ? 'bg-amber-100 text-amber-800 border-amber-300'
-                                : 'bg-rose-100 text-rose-800 border-rose-300'
-                            }`}
-                          >
-                            {gpsAccuracy === null
-                              ? 'กำลังค้นหาสัญญาณ...'
-                              : gpsAccuracy < 50
-                              ? `✓ แม่นยำสูง (คลาดเคลื่อน ±${gpsAccuracy} ม.)`
-                              : gpsAccuracy <= 100
-                              ? `แม่นยำปานกลาง (คลาดเคลื่อน ±${gpsAccuracy} ม.)`
-                              : `คลาดเคลื่อนสูง (±${gpsAccuracy} ม.)`}
-                          </span>
+                  if (gpsDistance === null) {
+                    return (
+                      <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-slate-100 border-2 border-slate-300 text-slate-700 flex items-center justify-between gap-3.5 shadow-sm">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shrink-0 shadow-xs">
+                            <Loader2 className="w-6 h-6 text-purple-600 animate-spin" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
+                              กำลังตรวจจับพิกัดดาวเทียม GPS...
+                            </h3>
+                            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                              กรุณารอสักครู่ ระบบกำลังคำนวณระยะห่างจาก {config.orgName}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                          {gpsCoords
-                            ? `พิกัดปัจจุบัน: ${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}`
-                            : 'กำลังเชื่อมต่อดาวเทียม GPS...'}
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => refreshGpsLocation(true)}
+                          className="px-3.5 py-2 rounded-xl bg-white text-purple-700 hover:bg-purple-50 text-xs font-bold transition-all shadow-xs border border-purple-200 cursor-pointer shrink-0 flex items-center gap-1.5"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${gpsLoading ? 'animate-spin' : ''}`} />
+                          <span>ปรับเทียบพิกัด</span>
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  if (isInRadius) {
+                    /* อยู่ในรัศมีลงเวลา (INSIDE RADIUS - สีเขียวเด่นชัดเจน) */
+                    return (
+                      <div className="relative overflow-hidden p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-700 text-white shadow-xl shadow-emerald-700/25 border-2 border-emerald-300">
+                        <div className="absolute -right-8 -bottom-8 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+
+                        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                            <div className="relative shrink-0">
+                              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
+                                <ShieldCheck className="w-7 h-7 sm:w-8 sm:h-8 text-white drop-shadow-md" />
+                              </div>
+                              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-300 border-2 border-white"></span>
+                              </span>
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className="px-3 py-0.5 rounded-full bg-white text-emerald-800 text-[10px] sm:text-xs font-black tracking-wide uppercase shadow-xs">
+                                  ✓ อยู่ในรัศมีลงเวลา
+                                </span>
+                                <span className="text-[11px] sm:text-xs text-emerald-100 font-semibold bg-emerald-800/40 px-2.5 py-0.5 rounded-full">
+                                  พร้อมลงเวลากลับ
+                                </span>
+                                {gpsAccuracy !== null && (
+                                  <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full font-bold ${
+                                    gpsAccuracy <= 15
+                                      ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/50'
+                                      : gpsAccuracy <= 30
+                                      ? 'bg-yellow-900/50 text-yellow-200 border border-yellow-400/40'
+                                      : 'bg-orange-900/50 text-orange-200 border border-orange-400/40'
+                                  }`}>
+                                    {gpsAccuracy <= 15 ? '🟢 ดาวเทียมแม่นยำสูง' : gpsAccuracy <= 30 ? '🟡 สัญญาณดี' : '🟠 พิกัดกว้าง'} (±{gpsAccuracy}ม.)
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="text-base sm:text-xl font-black text-white tracking-tight leading-tight">
+                                อยู่ในรัศมีโรงเรียน พร้อมบันทึกเวลา
+                              </h3>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-100 mt-1">
+                                <span>
+                                  ระยะห่าง: <b className="text-white font-mono text-sm sm:text-base font-extrabold">{gpsDistance} เมตร</b> <span className="text-[11px] opacity-80">(กำหนดไม่เกิน {config.radius} ม.{gpsDistance > allowedRadius ? ` • ชดเชยคลาดเคลื่อน ±${Math.round(accuracyTolerance)}ม.` : ''})</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => refreshGpsLocation(true)}
+                            className="self-start md:self-center px-4 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-extrabold transition-all border border-white/40 backdrop-blur-sm flex items-center gap-2 cursor-pointer shrink-0 shadow-xs"
+                            title="ปรับเทียบพิกัดดาวเทียมใหม่เพื่อเพิ่มความแม่นยำ"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${gpsLoading ? 'animate-spin' : ''}`} />
+                            <span>ปรับเทียบพิกัดดาวเทียม</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  /* ไม่อยู่ในพื้นที่ (OUTSIDE AREA - สีแดงเด่นชัดเจน) */
+                  return (
+                    <div className="relative overflow-hidden p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-rose-600 via-rose-700 to-red-800 text-white shadow-xl shadow-rose-700/30 border-2 border-rose-300">
+                      <div className="absolute -right-8 -bottom-8 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+
+                      <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          <div className="relative shrink-0">
+                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
+                              <ShieldAlert className="w-7 h-7 sm:w-8 sm:h-8 text-white drop-shadow-md animate-pulse" />
+                            </div>
+                            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-200 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-4 w-4 bg-yellow-400 border-2 border-white"></span>
+                            </span>
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="px-3 py-0.5 rounded-full bg-white text-rose-900 text-[10px] sm:text-xs font-black tracking-wide uppercase shadow-xs">
+                                ✕ ไม่อยู่ในพื้นที่
+                              </span>
+                              {gpsAccuracy !== null && (
+                                <span className="text-[10px] sm:text-xs text-yellow-200 font-semibold bg-black/30 px-2.5 py-0.5 rounded-full">
+                                  ความแม่นยำดาวเทียม: ±{gpsAccuracy} ม.
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="text-base sm:text-xl font-black text-white tracking-tight leading-tight">
+                              ไม่อยู่ในพื้นที่ (ไม่สามารถลงเวลาได้)
+                            </h3>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-rose-100 mt-1">
+                              <span>
+                                ระยะห่างปัจจุบัน: <b className="text-yellow-200 font-mono text-sm sm:text-base font-extrabold">{gpsDistance} เมตร</b> <span className="text-[11px] opacity-90">(เกินรัศมี {config.radius} ม.)</span>
+                              </span>
+                            </div>
+                            <div className="mt-2 text-[11px] text-yellow-100/90 bg-rose-950/40 p-2 rounded-lg border border-rose-400/30">
+                              💡 แนะนำ: หากท่านอยู่ในโรงเรียนแล้วแต่พิกัดคลาดเคลื่อน ให้กดปุ่ม <b>"ปรับเทียบพิกัดดาวเทียม"</b> หรือเปิด Wi-Fi ควบคู่ GPS หรือออกสู่ที่โล่งแจ้งเพื่อช่วยให้อุปกรณ์ล็อกดาวเทียมได้แม่นยำยิ่งขึ้น
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => refreshGpsLocation(true)}
+                          className="self-start md:self-center px-4 py-2.5 rounded-xl bg-white text-rose-900 hover:bg-rose-50 text-xs font-black transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+                          title="ปรับเทียบพิกัดดาวเทียมเดี๋ยวนี้"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${gpsLoading ? 'animate-spin' : ''}`} />
+                          <span>ปรับเทียบพิกัดดาวเทียม</span>
+                        </button>
                       </div>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={refreshGpsLocation}
-                      className="p-2 sm:px-3 sm:py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7C3AED] text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 border border-purple-200/70 shrink-0"
-                      title="รีเฟรชพิกัด GPS ใหม่"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${gpsLoading ? 'animate-spin' : ''}`} />
-                      <span className="hidden sm:inline">รีเฟรชพิกัด</span>
-                    </button>
-                  </div>
-
-                  {/* Distance & School Zone Check */}
-                  <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
-                    <div className="text-slate-600 flex items-center gap-1.5">
-                      <span>ระยะห่างจากจุดโรงเรียน:</span>
-                      <span className="font-mono font-bold text-slate-900 text-sm">
-                        {gpsDistance !== null ? `${gpsDistance} เมตร` : '-'}
-                      </span>
-                      <span className="text-slate-400">(รัศมีที่อนุญาต {config.radius} เมตร)</span>
-                    </div>
-
-                    <div>
-                      {gpsDistance !== null && (
-                        gpsDistance <= (config.radius || 150) ? (
-                          <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold text-xs inline-flex items-center gap-1.5 border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> อยู่ในรัศมีโรงเรียน พร้อมลงเวลา
-                          </span>
-                        ) : (
-                          <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-700 font-bold text-xs inline-flex items-center gap-1.5 border border-rose-200">
-                            <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> อยู่นอกพื้นที่โรงเรียน ({gpsDistance} ม.)
-                          </span>
-                        )
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* 4 Action Cards Grid (Direct Clock In/Out without Face Scanner) */}
-                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-4">
+                <div className="bg-white p-4 sm:p-5 md:p-6 rounded-2xl sm:rounded-3xl lg:rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100 space-y-3 sm:space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                      <CalendarCheck className="w-5 h-5 text-[#7C3AED]" /> บันทึกเวลาปฏิบัติงานวันนี้
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-800 flex items-center gap-2">
+                      <CalendarCheck className="w-4 h-4 sm:w-5 sm:h-5 text-[#7C3AED]" /> บันทึกเวลาปฏิบัติงานวันนี้
                     </h3>
-                    <span className="text-xs text-slate-400 font-medium">{thaiDateString}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {(() => {
+                        const todayStr = getInternetIsoDate();
+                        const hStatus = evaluateDayHolidayStatus(todayStr, holidaysMap);
+                        if (hStatus.isSpecialOverride && !hStatus.isHoliday) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] sm:text-[11px] font-bold border border-blue-300">
+                              ✓ {hStatus.holidayName || 'วันทำการพิเศษ'} (เปิดลงเวลา)
+                            </span>
+                          );
+                        }
+                        if (hStatus.isHoliday) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] sm:text-[11px] font-bold border border-rose-300">
+                              วันหยุด: {hStatus.holidayName}
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] sm:text-[11px] font-bold border border-emerald-300">
+                            วันทำการปกติ
+                          </span>
+                        );
+                      })()}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+                        <span>เวลาอินเทอร์เน็ต</span>
+                      </span>
+                      <span className="text-[11px] sm:text-xs text-slate-500 font-semibold">{thaiDateString}</span>
+                    </div>
                   </div>
 
-                  {/* 1. Check-In Button (Bluetooth MAC + GPS) */}
-                  <div
-                    onClick={() => handleDirectClock('IN')}
-                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
-                      todaySummary.leave || todaySummary.official
-                        ? 'bg-slate-300 opacity-60 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-600 shadow-emerald-700/20 hover:scale-[1.01] hover:brightness-105'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                        <Clock className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h4 className="text-base font-extrabold">ลงเวลามาปฏิบัติงาน (IN)</h4>
-                        <p className="text-xs text-emerald-100 font-medium">
-                          Bluetooth MAC + พิกัดดาวเทียม GPS
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {todaySummary.leave || todaySummary.official ? (
-                        <span className="text-[11px] font-bold bg-black/20 text-white px-2.5 py-1 rounded-xl">
-                          ล็อก (แจ้งลาแล้ว)
-                        </span>
-                      ) : (
+                  {(() => {
+                    const allowedRadius = config.radius || 150;
+                    const accuracyTolerance = Math.min((gpsAccuracy || 15) * 0.45, 25);
+                    const isInRadius = gpsDistance !== null && gpsDistance <= (allowedRadius + accuracyTolerance);
+                    const isOutsideArea = gpsDistance !== null && !isInRadius;
+
+                    return (
+                      <>
+
+                        {/* 2. Check-Out Button (Bluetooth MAC + GPS) */}
                         <div
-                          className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
-                            todaySummary.in !== '--:--'
-                              ? 'bg-white text-emerald-700'
-                              : 'bg-white/20 text-white border border-white/30'
+                          onClick={() => handleDirectClock('OUT')}
+                          className={`p-3.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl text-white flex items-center justify-between shadow-md sm:shadow-lg transition-all cursor-pointer group ${
+                            todaySummary.leave || todaySummary.official
+                              ? 'bg-slate-300 opacity-60 cursor-not-allowed'
+                              : isOutsideArea
+                              ? 'bg-gradient-to-r from-amber-600 via-orange-700 to-amber-700 ring-2 ring-rose-400 shadow-rose-900/20 hover:scale-[1.01]'
+                              : 'bg-gradient-to-r from-amber-500 via-orange-600 to-amber-600 shadow-amber-700/20 ring-2 ring-amber-300/50 hover:scale-[1.01] hover:brightness-105'
                           }`}
                         >
-                          {todaySummary.in}
+                          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                              <LogOut className="w-5 h-5 sm:w-6 sm:h-6" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-sm sm:text-base font-extrabold truncate">ลงเวลากลับ (OUT)</h4>
+                              <p className="text-[10px] sm:text-xs text-amber-100 font-medium truncate">บันทึกเวลาสิ้นสุดงาน</p>
+                              {isOutsideArea ? (
+                                <div className="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black text-rose-100 bg-rose-950/70 px-2 py-0.5 rounded-md mt-1 border border-rose-400/50">
+                                  <AlertTriangle className="w-3 h-3 text-yellow-300 shrink-0" />
+                                  <span>ไม่อยู่ในพื้นที่ ({gpsDistance} ม.) - เกินรัศมี {config.radius} ม.</span>
+                                </div>
+                              ) : gpsDistance !== null ? (
+                                <div className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-100 bg-amber-950/40 px-2 py-0.5 rounded-md mt-1">
+                                  <span>✓ อยู่ในรัศมีลงเวลา ({gpsDistance} ม.) พร้อมบันทึก</span>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] text-slate-200 bg-black/20 px-2 py-0.5 rounded-md mt-1">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  <span>กำลังตรวจจับพิกัด...</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            {todaySummary.leave || todaySummary.official ? (
+                              <span className="text-[10px] sm:text-[11px] font-bold bg-black/20 text-white px-2 py-1 rounded-lg">
+                                ล็อก (ลา)
+                              </span>
+                            ) : (
+                              <div
+                                className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-bold font-mono text-xs sm:text-sm shadow-xs ${
+                                  todaySummary.out !== '--:--'
+                                    ? 'bg-white text-amber-800'
+                                    : 'bg-white/20 text-white border border-white/30'
+                                }`}
+                              >
+                                {todaySummary.out}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </>
+                    );
+                  })()}
 
-                  {/* 2. Check-Out Button (Bluetooth MAC + GPS) */}
-                  <div
-                    onClick={() => handleDirectClock('OUT')}
-                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
-                      todaySummary.leave || todaySummary.official
-                        ? 'bg-slate-300 opacity-60 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-amber-500 via-orange-600 to-amber-600 shadow-amber-700/20 hover:scale-[1.01] hover:brightness-105'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                        <LogOut className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h4 className="text-base font-extrabold">ลงเวลากลับ (OUT)</h4>
-                        <p className="text-xs text-amber-100 font-medium">บันทึกเวลาสิ้นสุดงาน</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {todaySummary.leave || todaySummary.official ? (
-                        <span className="text-[11px] font-bold bg-black/20 text-white px-2.5 py-1 rounded-xl">
-                          ล็อก (แจ้งลาแล้ว)
-                        </span>
-                      ) : (
-                        <div
-                          className={`px-3.5 py-1.5 rounded-xl font-bold font-mono text-sm shadow-sm ${
-                            todaySummary.out !== '--:--'
-                              ? 'bg-white text-amber-800'
-                              : 'bg-white/20 text-white border border-white/30'
-                          }`}
-                        >
-                          {todaySummary.out}
-                        </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* 3. Leave Request Button (Locked if Clocked-in today!) */}
+                  {/* 3. Leave Request Button */}
                   <div
                     onClick={handleLeaveRequest}
-                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
-                      todaySummary.in !== '--:--' || todaySummary.out !== '--:--'
-                        ? 'bg-slate-400/80 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-sky-500 via-blue-600 to-sky-600 shadow-blue-700/20 hover:scale-[1.01] hover:brightness-105'
-                    }`}
+                    className="p-3.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl text-white flex items-center justify-between shadow-md sm:shadow-lg transition-all cursor-pointer group bg-gradient-to-r from-sky-500 via-blue-600 to-sky-600 shadow-blue-700/20 hover:scale-[1.01] hover:brightness-105"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                        <CalendarOff className="w-6 h-6" />
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                        <CalendarOff className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
-                      <div>
-                        <h4 className="text-base font-extrabold">แจ้งลาหยุด (LEAVE)</h4>
-                        <p className="text-xs text-sky-100 font-medium">
-                          {todaySummary.in !== '--:--'
-                            ? 'ล็อก: วันนี้ลงเวลาแล้ว ไม่สามารถลาได้'
-                            : 'ลาป่วย / ลากิจ / ลาพักผ่อน'}
+                      <div className="min-w-0">
+                        <h4 className="text-sm sm:text-base font-extrabold truncate">แจ้งลาหยุดราชการ (LEAVE)</h4>
+                        <p className="text-[10px] sm:text-xs text-sky-100 font-medium truncate">
+                          {todaySummary.leave
+                            ? `วันนี้: ${formatTableLeaveDisplay(todaySummary.leave)}`
+                            : 'ลาป่วย / ลากิจ / ลาพักผ่อน (ออนไลน์)'}
                         </p>
                       </div>
                     </div>
-                    <div>
-                      {todaySummary.in !== '--:--' ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-black/25 text-white text-[11px] font-bold">
-                          ล็อกแล้ว
-                        </span>
-                      ) : (
-                        <div
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
-                            todaySummary.leave
-                              ? 'bg-white text-sky-700'
-                              : 'bg-white/20 text-white border border-white/30'
-                          }`}
-                        >
-                          {todaySummary.leave ? todaySummary.leave.split(' ')[0] : 'แจ้งลา'}
-                        </div>
-                      )}
+                    <div className="shrink-0 ml-2">
+                      <div
+                        className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-bold text-xs shadow-xs transition-transform group-hover:scale-105 ${
+                          todaySummary.leave
+                            ? 'bg-white text-sky-700'
+                            : 'bg-white/20 text-white border border-white/30'
+                        }`}
+                      >
+                        {todaySummary.leave ? 'บันทึกแล้ว' : 'แจ้งลา'}
+                      </div>
                     </div>
                   </div>
 
-                  {/* 4. Official Duty Button (Locked if Clocked-in today!) */}
+                  {/* 4. Official Duty Button */}
                   <div
                     onClick={handleOfficialDutyRequest}
-                    className={`p-5 rounded-2xl text-white flex items-center justify-between shadow-lg transition-all cursor-pointer group ${
-                      todaySummary.in !== '--:--' || todaySummary.out !== '--:--'
-                        ? 'bg-slate-400/80 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-purple-500 via-violet-700 to-purple-600 shadow-purple-700/20 hover:scale-[1.01] hover:brightness-105'
-                    }`}
+                    className="p-3.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl text-white flex items-center justify-between shadow-md sm:shadow-lg transition-all cursor-pointer group bg-gradient-to-r from-purple-600 via-violet-700 to-indigo-600 shadow-purple-700/20 hover:scale-[1.01] hover:brightness-105"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                        <Briefcase className="w-6 h-6" />
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                        <Briefcase className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
-                      <div>
-                        <h4 className="text-base font-extrabold">ไปราชการ (OFFICIAL)</h4>
-                        <p className="text-xs text-purple-100 font-medium">
-                          {todaySummary.in !== '--:--'
-                            ? 'ล็อก: วันนี้ลงเวลาแล้ว ไม่สามารถไปราชการได้'
-                            : 'ปฏิบัติงานนอกสถานที่ / อบรม'}
+                      <div className="min-w-0">
+                        <h4 className="text-sm sm:text-base font-extrabold truncate">บันทึกไปราชการ (OFFICIAL)</h4>
+                        <p className="text-[10px] sm:text-xs text-purple-100 font-medium truncate">
+                          {todaySummary.official
+                            ? `วันนี้: ${formatTableOfficialDisplay(todaySummary.official)}`
+                            : 'ปฏิบัติงานนอกสถานที่ / อบรม / สัมมนา'}
                         </p>
                       </div>
                     </div>
-                    <div>
-                      {todaySummary.in !== '--:--' ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-black/25 text-white text-[11px] font-bold">
-                          ล็อกแล้ว
-                        </span>
-                      ) : (
-                        <div
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs shadow-sm ${
-                            todaySummary.official
-                              ? 'bg-white text-purple-800'
-                              : 'bg-white/20 text-white border border-white/30'
-                          }`}
-                        >
-                          {todaySummary.official ? 'บันทึกแล้ว' : 'บันทึก'}
-                        </div>
-                      )}
+                    <div className="shrink-0 ml-2">
+                      <div
+                        className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-bold text-xs shadow-xs transition-transform group-hover:scale-105 ${
+                          todaySummary.official
+                            ? 'bg-white text-purple-800'
+                            : 'bg-white/20 text-white border border-white/30'
+                        }`}
+                      >
+                        {todaySummary.official ? 'บันทึกแล้ว' : 'ไปราชการ'}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Recent History Table */}
-                <div className="bg-white p-6 rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                <div className="bg-white p-4 sm:p-5 md:p-6 rounded-2xl sm:rounded-3xl lg:rounded-[32px] shadow-xl shadow-purple-950/5 border border-purple-100">
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-800 flex items-center gap-2">
                       <Clock className="w-4 h-4 text-[#7C3AED]" /> ประวัติการลงเวลาย้อนหลัง
                     </h3>
-                    <button
-                      onClick={() => fetchUserAttendance(currentUser.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#7C3AED] transition-colors cursor-pointer"
-                      title="รีเฟรชข้อมูล"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${historyLoading ? 'animate-spin' : ''}`} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentTab('teacher-report')}
+                        className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7C3AED] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border border-purple-200"
+                        title="ดูรายงานประจำเดือนและพิมพ์เอกสาร"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">รายงานประจำเดือน (พิมพ์)</span>
+                        <span className="sm:hidden">รายงาน</span>
+                      </button>
+                      <button
+                        onClick={() => fetchUserAttendance(currentUser.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#7C3AED] transition-colors cursor-pointer"
+                        title="รีเฟรชข้อมูล"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${historyLoading ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
                   </div>
 
                   {historyLoading ? (
-                    <div className="py-8 text-center text-slate-400">
-                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#7C3AED]" />
+                    <div className="py-6 sm:py-8 text-center text-slate-400">
+                      <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 animate-spin mx-auto mb-2 text-[#7C3AED]" />
                       <p className="text-xs">กำลังโหลดประวัติ...</p>
                     </div>
                   ) : userHistory.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400">
-                      <Clock className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <div className="py-6 sm:py-8 text-center text-slate-400">
+                      <Clock className="w-7 h-7 sm:w-8 sm:h-8 mx-auto mb-2 opacity-40" />
                       <p className="text-xs">ยังไม่มีรายการลงเวลาในระบบ</p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-2 sm:space-y-3">
                       {userHistory.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-purple-50/30 transition-colors"
+                          className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2 hover:bg-purple-50/30 transition-colors"
                         >
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                             <div
-                              className={`w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0 font-bold text-xs ${
+                              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center text-white shrink-0 font-bold text-xs ${
                                 item.action === 'IN'
                                   ? 'bg-emerald-500'
                                   : item.action === 'OUT'
@@ -1451,8 +1611,8 @@ export default function App() {
                             >
                               {item.action === 'IN' ? 'IN' : item.action === 'OUT' ? 'OUT' : 'L'}
                             </div>
-                            <div>
-                              <div className="font-bold text-xs text-slate-800">
+                            <div className="min-w-0">
+                              <div className="font-bold text-xs text-slate-800 truncate">
                                 {item.action === 'IN'
                                   ? 'ลงเวลาเข้างาน'
                                   : item.action === 'OUT'
@@ -1460,16 +1620,24 @@ export default function App() {
                                   : item.action === 'LEAVE'
                                   ? 'แจ้งลาหยุด'
                                   : 'ไปราชการ'}
-                                {item.note && <span className="text-slate-500 font-normal ml-1">({item.note})</span>}
+                                {item.note && (
+                                  <span className="text-slate-500 font-normal ml-1">
+                                    ({item.action === 'LEAVE'
+                                      ? formatTableLeaveDisplay(item.note)
+                                      : item.action === 'OFFICIAL'
+                                      ? formatTableOfficialDisplay(item.note)
+                                      : item.note})
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-[11px] text-slate-400">
+                              <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
                                 {item.dateThai || item.date}
                               </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-mono font-bold text-sm text-slate-800">{item.time} น.</div>
-                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                          <div className="text-right shrink-0">
+                            <div className="font-mono font-bold text-xs sm:text-sm text-slate-800">{item.time} น.</div>
+                            <span className="text-[9px] sm:text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-full">
                               สำเร็จ
                             </span>
                           </div>
@@ -1482,21 +1650,42 @@ export default function App() {
             </div>
           )}
 
+          {/* TEACHER DASHBOARD VIEW */}
+          {currentUser.role !== 'admin' && currentTab === 'teacher-dashboard' && (
+            <TeacherDashboard
+              user={currentUser}
+              config={config}
+              onSelectTab={(tab) => setCurrentTab(tab as any)}
+              onClockAction={(action) => handleDirectClock(action)}
+              onOpenLeaveModal={handleLeaveRequest}
+              onOpenOfficialModal={handleOfficialDutyRequest}
+              onOpenEditProfile={() => setEditProfileModalOpen(true)}
+            />
+          )}
+
+          {/* TEACHER REPORT VIEW */}
+          {currentUser.role !== 'admin' && currentTab === 'teacher-report' && (
+            <TeacherReport user={currentUser} config={config} />
+          )}
+
           {/* ADMIN MANAGEMENT DASHBOARD */}
           {currentUser.role === 'admin' && (
             <AdminReports
+              user={currentUser}
               config={config}
               activeView={currentTab.startsWith('admin-') ? currentTab.replace('admin-', '') as any : 'dashboard'}
               selectedDate={selectedAdminDate}
               onDateChange={setSelectedAdminDate}
               selectedMonth={selectedAdminMonth}
               onMonthChange={setSelectedAdminMonth}
+              onOpenHolidaysModal={() => setHolidaysModalOpen(true)}
+              onOpenDeleteDataModal={() => setDeleteDataModalOpen(true)}
             />
           )}
         </main>
 
         {/* Global Footer */}
-        <footer className="text-center py-6 text-xs font-semibold text-slate-400 border-t border-purple-100 bg-white/60">
+        <footer className="text-center py-4 sm:py-6 px-3 text-[11px] sm:text-xs font-semibold text-slate-400 border-t border-purple-100 bg-white/60">
           ระบบลงเวลาปฏิบัติงานออนไลน์ {config.orgName} โดย รองฯภัทรธีระ ประทุมเม
         </footer>
       </div>
@@ -1541,6 +1730,53 @@ export default function App() {
           isOpen={registerModalOpen}
           onClose={() => setRegisterModalOpen(false)}
           onSuccess={() => {}}
+        />
+      )}
+
+      {/* 5. Admin Holidays Modal */}
+      {holidaysModalOpen && (
+        <AdminHolidaysModal
+          isOpen={holidaysModalOpen}
+          onClose={() => setHolidaysModalOpen(false)}
+          adminUsername={currentUser?.username || 'admin'}
+          onHolidaysChange={(updatedMap) => setHolidaysMap(updatedMap)}
+        />
+      )}
+
+      {/* 6. Admin Delete Data Modal */}
+      {deleteDataModalOpen && (
+        <AdminDeleteDataModal
+          isOpen={deleteDataModalOpen}
+          onClose={() => setDeleteDataModalOpen(false)}
+          adminUsername={currentUser?.username || 'admin'}
+          config={config}
+          onDataDeleted={() => {
+            if (currentUser) {
+              fetchUserAttendance(currentUser.id);
+            }
+          }}
+        />
+      )}
+
+      {/* 7. Teacher Leave Modal */}
+      {leaveModalOpen && currentUser && (
+        <TeacherLeaveModal
+          isOpen={leaveModalOpen}
+          onClose={() => setLeaveModalOpen(false)}
+          user={currentUser}
+          currentDeviceMac={currentDeviceMac}
+          onSuccess={() => fetchUserAttendance(currentUser.id)}
+        />
+      )}
+
+      {/* 8. Teacher Official Duty Modal */}
+      {officialModalOpen && currentUser && (
+        <TeacherOfficialModal
+          isOpen={officialModalOpen}
+          onClose={() => setOfficialModalOpen(false)}
+          user={currentUser}
+          currentDeviceMac={currentDeviceMac}
+          onSuccess={() => fetchUserAttendance(currentUser.id)}
         />
       )}
     </div>
