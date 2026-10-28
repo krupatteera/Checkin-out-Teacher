@@ -447,7 +447,7 @@ export const AdminDeleteDataModal: React.FC<AdminDeleteDataModalProps> = ({
                 เมนูลบข้อมูลในระบบและฐานข้อมูล
               </h2>
               <p className="text-[11px] sm:text-xs text-rose-100 font-medium">
-                ลบข้อมูลการลงเวลา (รายบุคคล/เฉพาะวันที่/ทั้งหมด) &amp; ลบประวัติระบบ (รายเดือน/ทั้งหมด)
+                ลบข้อมูลการลงเวลา (รายบุคคล / เฉพาะวันที่ / ทั้งหมด)
               </p>
             </div>
           </div>
@@ -461,38 +461,10 @@ export const AdminDeleteDataModal: React.FC<AdminDeleteDataModalProps> = ({
           </button>
         </div>
 
-        {/* Category Tabs: ข้อมูลการลงเวลา vs ประวัติระบบ */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 pt-3 gap-2 shrink-0">
-          <button
-            onClick={() => setActiveCategory('attendance')}
-            className={`px-4 py-2.5 rounded-t-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer border-t border-x ${
-              activeCategory === 'attendance'
-                ? 'bg-white border-slate-200 text-rose-700 shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-            <span>ข้อมูลการลงเวลา ({totalAttendanceCount})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveCategory('logs')}
-            className={`px-4 py-2.5 rounded-t-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer border-t border-x ${
-              activeCategory === 'logs'
-                ? 'bg-white border-slate-200 text-rose-700 shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <FileClock className="w-4 h-4" />
-            <span>ประวัติระบบ Logs ({totalLogsCount})</span>
-          </button>
-        </div>
-
         {/* Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-6 text-slate-700 flex-1">
-          {/* TAB 1: ข้อมูลการลงเวลา (รายบุคคล / ทั้งหมด) */}
-          {activeCategory === 'attendance' && (
-            <div className="space-y-6">
+          {/* ข้อมูลการลงเวลา */}
+          <div className="space-y-6">
               {/* SECTION A: ลบข้อมูลการลงเวลารายบุคคล */}
               <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
                 <div className="flex items-center gap-2 text-slate-800 pb-2 border-b border-slate-100">
@@ -770,130 +742,6 @@ export const AdminDeleteDataModal: React.FC<AdminDeleteDataModalProps> = ({
                 </div>
               </div>
             </div>
-          )}
-
-          {/* TAB 2: ประวัติระบบ Logs (รายเดือน / ทั้งหมด) */}
-          {activeCategory === 'logs' && (
-            <div className="space-y-6">
-              {/* SECTION A: ลบประวัติระบบรายเดือน */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-                <div className="flex items-center gap-2 text-slate-800 pb-2 border-b border-slate-100">
-                  <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-700 flex items-center justify-center font-bold text-xs">
-                    1
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-sm sm:text-base text-slate-800">
-                      ลบประวัติระบบ (Logs) : รายเดือน
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      เลือกลบประวัติการทำงานของระบบตามเดือนที่ระบุออกจากฐานข้อมูล
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      เลือกเดือน:
-                    </label>
-                    <select
-                      value={logMonthNum}
-                      onChange={(e) => setLogMonthNum(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:border-sky-500 cursor-pointer"
-                    >
-                      {THAI_MONTHS_SELECT.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      เลือกปี พ.ศ.:
-                    </label>
-                    <select
-                      value={logYearBE}
-                      onChange={(e) => setLogYearBE(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold font-mono text-slate-800 bg-white focus:outline-none focus:border-sky-500 cursor-pointer"
-                    >
-                      {[2567, 2568, 2569, 2570, 2571, 2572].map((y) => (
-                        <option key={y} value={y}>
-                          พ.ศ. {y}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Selected Month Status Card */}
-                <div className="p-3.5 rounded-xl bg-sky-50/70 border border-sky-100 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-extrabold text-sky-950">
-                      {logMonthDisplay}
-                    </div>
-                    <div className="text-[11px] text-sky-700">
-                      พบประวัติระบบ: <b className="font-mono">{monthLogsCount}</b> รายการ
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleDeleteLogsByMonth}
-                    disabled={actionLoading || monthLogsCount === 0}
-                    className="px-3.5 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:bg-slate-300 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>ลบประวัติเดือนนี้</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* SECTION B: ลบประวัติระบบทั้งหมด */}
-              <div className="bg-rose-50/60 rounded-2xl border-2 border-rose-200 p-4 sm:p-5 shadow-xs space-y-4">
-                <div className="flex items-center gap-2 text-rose-800 pb-2 border-b border-rose-200">
-                  <div className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-xs">
-                    2
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-sm sm:text-base text-rose-900">
-                      ลบประวัติระบบ (Logs) : ทั้งหมด
-                    </h3>
-                    <p className="text-[11px] text-rose-700">
-                      ล้างประวัติการใช้งานและการบันทึกทั้งหมดของระบบออกจากฐานข้อมูล
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-white border border-rose-200 flex items-center justify-between gap-3 text-xs">
-                  <div>
-                    <div className="text-slate-700 font-bold">
-                      ประวัติระบบทั้งหมดในฐานข้อมูล
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      บันทึกการกระทำ การล็อกอิน และการลงเวลาในอดีต
-                    </div>
-                  </div>
-                  <div className="font-mono font-extrabold text-base text-rose-600">
-                    {totalLogsCount} รายการ
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleDeleteAllLogs}
-                    disabled={actionLoading || totalLogsCount === 0}
-                    className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>ลบประวัติระบบทั้งหมด</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer */}

@@ -98,7 +98,7 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
 
   // Active view tab
-  const [currentTab, setCurrentTab] = useState<'teacher-dashboard' | 'home' | 'teacher-report' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-logs'>('teacher-dashboard');
+  const [currentTab, setCurrentTab] = useState<'teacher-dashboard' | 'home' | 'teacher-report' | 'admin-dashboard' | 'admin-summary' | 'admin-map'>('teacher-dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Attendance user data (Teachers only)
@@ -527,12 +527,10 @@ export default function App() {
       return;
     }
 
-    // Check check-out constraints (Direct clock-out without requiring clock-in)
-    if (action === 'OUT') {
-      if (todaySummary.out !== '--:--') {
-        Swal.fire('ลงเวลากลับแล้ว', `คุณได้ลงเวลากลับไปแล้วเมื่อ ${todaySummary.out} น.`, 'info');
-        return;
-      }
+    // Check check-out constraints
+    if (action === 'OUT' && todaySummary.out !== '--:--') {
+      Swal.fire('ลงเวลากลับแล้ว', `คุณได้ลงเวลากลับไปแล้วเมื่อ ${todaySummary.out} น.`, 'info');
+      return;
     }
 
     // 2. Validate Bluetooth MAC Address
@@ -625,9 +623,11 @@ export default function App() {
     const timeStr = getInternetTimeString();
     const clockParts = getInternetClockParts();
 
+    const isLate = Boolean(action === 'IN' && config.lateTime && timeStr > config.lateTime);
     const isEarly = Boolean(action === 'OUT' && config.earlyTime && timeStr < config.earlyTime);
 
     let finalNote = '';
+    if (isLate) finalNote = 'เข้าสาย';
     if (isEarly) finalNote = 'กลับก่อนเวลา';
 
     try {
@@ -642,7 +642,7 @@ export default function App() {
         lat: effectiveCoords.lat,
         lng: effectiveCoords.lng,
         distance: effectiveDist,
-        isLate: false,
+        isLate,
         isEarly,
         note: finalNote,
         macAddress: currentDeviceMac,
@@ -650,15 +650,15 @@ export default function App() {
       });
 
       await Swal.fire({
-        title: 'ลงเวลากลับสำเร็จ!',
+        title: action === 'IN' ? 'ลงเวลาเข้างานสำเร็จ!' : 'ลงเวลากลับสำเร็จ!',
         html: `
           <div class="text-left text-xs text-slate-600 space-y-2 mt-2">
             <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
-              <p class="text-sm font-bold text-purple-900">เวลา: ${timeStr} น. ${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span>' : '<span class="text-emerald-600 font-bold">(ตรงเวลา)</span>'}</p>
+              <p class="text-sm font-bold text-purple-900">เวลา: ${timeStr} น. ${isLate ? '<span class="text-rose-600 font-bold">(เข้าสาย)</span>' : ''} ${isEarly ? '<span class="text-amber-600 font-bold">(กลับก่อนเวลา)</span>' : ''}</p>
               <p class="text-[11px] text-slate-500 mt-1">พิกัด GPS: ${effectiveCoords.lat.toFixed(5)}, ${effectiveCoords.lng.toFixed(5)} (ห่าง ร.ร. ${effectiveDist} ม.)</p>
               <p class="text-[11px] font-mono text-purple-800 mt-0.5">Bluetooth MAC: ${currentDeviceMac}</p>
             </div>
-            <p class="text-[10px] text-emerald-700 font-bold">✓ บันทึกเวลากลับด้วยพิกัด GPS และ Bluetooth MAC เรียบร้อยแล้ว</p>
+            <p class="text-[10px] text-emerald-700 font-bold">✓ บันทึกเวลาด้วยพิกัด GPS และ Bluetooth MAC เรียบร้อยแล้ว</p>
           </div>
         `,
         icon: 'success',
@@ -1126,18 +1126,6 @@ export default function App() {
               <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#8B5CF6]" />
               <span>ตั้งค่าระบบ/ขอบเขต</span>
             </button>
-
-            <button
-              onClick={() => setCurrentTab('admin-logs')}
-              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
-                currentTab === 'admin-logs'
-                  ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-900/15'
-                  : 'bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED]'
-              }`}
-            >
-              <FileClock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span>ประวัติระบบ (Logs)</span>
-            </button>
           </div>
         )}
 
@@ -1291,7 +1279,7 @@ export default function App() {
                                   ✓ อยู่ในรัศมีลงเวลา
                                 </span>
                                 <span className="text-[11px] sm:text-xs text-emerald-100 font-semibold bg-emerald-800/40 px-2.5 py-0.5 rounded-full">
-                                  พร้อมลงเวลากลับ
+                                  พร้อมลงเวลาปฏิบัติงาน
                                 </span>
                                 {gpsAccuracy !== null && (
                                   <span className={`text-[10px] sm:text-[11px] px-2.5 py-0.5 rounded-full font-bold ${
@@ -1432,8 +1420,7 @@ export default function App() {
 
                     return (
                       <>
-
-                        {/* 2. Check-Out Button (Bluetooth MAC + GPS) */}
+                        {/* 1. Check-Out Button (Bluetooth MAC + GPS) */}
                         <div
                           onClick={() => handleDirectClock('OUT')}
                           className={`p-3.5 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl text-white flex items-center justify-between shadow-md sm:shadow-lg transition-all cursor-pointer group ${

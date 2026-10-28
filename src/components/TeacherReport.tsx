@@ -170,10 +170,10 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
   const [reportRows, setReportRows] = useState<DayAttendanceRow[]>([]);
   const [showOnlyWeekdays, setShowOnlyWeekdays] = useState<boolean>(true);
 
-  // Stats (ปรับปรุงให้สอดคล้องกับระบบลงเวลากลับ, ลา, ไปราชการ)
+  // Stats (Note: ขาดงาน ถูกยกเลิกตามคำขอของผู้ใช้)
   const [stats, setStats] = useState({
-    totalOut: 0,
-    totalNormalOut: 0,
+    totalWorkDays: 0,
+    totalLate: 0,
     totalEarly: 0,
     totalLeave: 0,
     totalOfficial: 0,
@@ -237,8 +237,8 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
       const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
 
       const rows: DayAttendanceRow[] = [];
-      let countOut = 0;
-      let countNormalOut = 0;
+      let countWork = 0;
+      let countLate = 0;
       let countEarly = 0;
       let countLeave = 0;
       let countOfficial = 0;
@@ -264,6 +264,9 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
         const isHoliday = holidayStatus.isHoliday;
         const holidayName = holidayStatus.holidayName;
 
+        // ถ้าเลือกแสดงเฉพาะวันจันทร์-ศุกร์:
+        // ข้ามเฉพาะวันเสาร์/อาทิตย์ที่เป็นวันหยุดและไม่มีการลงเวลา
+        // แต่วันจันทร์-ศุกร์ที่เป็นวันหยุดตามที่ตั้งค่าไว้ (เช่น วันหยุดนักขัตฤกษ์ หรือวันหยุดราชการ) ให้คงไว้ในตารางเพื่อแสดงสถานะ "วันหยุด"
         if (showOnlyWeekdays && isWeekend && !hasRecord && !holidayStatus.isSpecialOverride) {
           curr.setDate(curr.getDate() + 1);
           continue;
@@ -280,6 +283,14 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
 
         if (hasRecord) {
           dayRecords.forEach((r) => {
+            if (r.action === 'IN') {
+              timeIn = `${r.time} น.`;
+              if (r.isLate) {
+                isLate = true;
+              } else if (config.lateTime && r.time > config.lateTime) {
+                isLate = true;
+              }
+            }
             if (r.action === 'OUT') {
               timeOut = `${r.time} น.`;
               if (r.isEarly) {
@@ -296,18 +307,13 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
             }
           });
         } else if (isHoliday) {
-          timeOut = 'วันหยุด';
+          timeIn = 'วันหยุด';
+          timeOut = 'ไม่สามารถลงเวลาได้';
         }
 
         // สรุปสถิติ (นับวันเมื่อมีข้อมูลลงเวลากลับจริง)
-        if (timeOut !== '-' && timeOut !== 'วันหยุด') {
-          countOut++;
-          if (isEarly) {
-            countEarly++;
-          } else {
-            countNormalOut++;
-          }
-        }
+        if (timeOut !== '-' && timeOut !== 'ไม่สามารถลงเวลาได้') countWork++;
+        if (isEarly) countEarly++;
         if (leaveNote !== '-') countLeave++;
         if (officialNote !== '-') countOfficial++;
         if (isHoliday && !hasRecord) countHolidays++;
@@ -332,8 +338,8 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
       }
 
       setStats({
-        totalOut: countOut,
-        totalNormalOut: countNormalOut,
+        totalWorkDays: countWork,
+        totalLate: countLate,
         totalEarly: countEarly,
         totalLeave: countLeave,
         totalOfficial: countOfficial,
@@ -527,31 +533,21 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
         </div>
       </div>
 
-      {/* KPI Stats (Hidden during print - แสดงสถิติการลงเวลากลับ ลา ไปราชการ) */}
-      <div className="no-print grid grid-cols-2 sm:grid-cols-6 gap-2.5 sm:gap-3">
+      {/* KPI Stats (Hidden during print - เน้นลงเวลากลับ ลา และไปราชการ) */}
+      <div className="no-print grid grid-cols-2 sm:grid-cols-5 gap-2.5 sm:gap-3">
         <div className="p-3.5 rounded-2xl bg-white border border-purple-100 shadow-2xs flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
             <Clock className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-lg sm:text-xl font-extrabold font-mono text-slate-800">{stats.totalOut}</div>
+            <div className="text-lg sm:text-xl font-extrabold font-mono text-slate-800">{stats.totalWorkDays}</div>
             <div className="text-[11px] text-slate-500 font-medium">ลงเวลากลับ (วัน)</div>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-2xl bg-white border border-emerald-100 shadow-2xs flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-            <Check className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-lg sm:text-xl font-extrabold font-mono text-emerald-600">{stats.totalNormalOut}</div>
-            <div className="text-[11px] text-slate-500 font-medium">กลับตรงเวลา (ครั้ง)</div>
           </div>
         </div>
 
         <div className="p-3.5 rounded-2xl bg-white border border-orange-100 shadow-2xs flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-700 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" />
+            <Clock className="w-5 h-5" />
           </div>
           <div>
             <div className="text-lg sm:text-xl font-extrabold font-mono text-orange-600">{stats.totalEarly}</div>
@@ -627,7 +623,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
 
         {/* Report Table: Columns: (วันที่, ชื่อครู, เวลากลับ, ลา, ไปราชการ) - NO IMAGES IN TABLE & NO 'ขาดงาน' */}
         <div className="overflow-x-auto p-2 sm:p-5">
-          <table className="print-black-table w-full text-xs text-left border-collapse border border-black min-w-[580px] text-black">
+          <table className="print-black-table w-full text-xs text-left border-collapse border border-black min-w-[600px] text-black">
             <thead>
               <tr className="bg-slate-100 border-b border-black text-black">
                 <th className="border border-black px-3.5 py-2.5 text-center font-bold text-black w-44">
@@ -636,8 +632,8 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
                 <th className="border border-black px-4 py-2.5 text-left font-bold text-black">
                   ชื่อครู
                 </th>
-                <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-32">
-                  เวลากลับ (OUT)
+                <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-36">
+                  เวลากลับ
                 </th>
                 <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-32">
                   ลา
@@ -681,7 +677,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
                     </td>
                     <td className="border border-black px-3 py-2 text-center font-bold text-black">
                       {row.isHoliday && !row.hasRecord ? (
-                        <span className="inline-block text-black font-extrabold text-[11px]">วันหยุด (ไม่เปิดลงเวลา)</span>
+                        <span className="inline-block text-black font-extrabold text-[11px]">ไม่สามารถลงเวลาได้</span>
                       ) : (
                         <>
                           <span className="font-mono">{row.timeOut}</span>
@@ -702,15 +698,14 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           </table>
         </div>
 
-        {/* สรุปข้อมูลรายงานการปฏิบัติราชการ */}
+        {/* สรุปข้อมูลรายงาน (ยกเลิกขาดงานตามคำขอ) */}
         <div className="p-4 bg-white border-t border-black text-xs text-black space-y-4">
           <div className="border border-black p-3 bg-white space-y-1">
             <p className="font-bold">
               สรุปผลการปฏิบัติราชการ {dateRangeDisplay} (รวม {reportRows.length} วัน):
             </p>
             <p className="text-[11px]">
-              ลงเวลากลับ: <b>{stats.totalOut}</b> วัน &nbsp;|&nbsp;
-              กลับตรงเวลา: <b>{stats.totalNormalOut}</b> ครั้ง &nbsp;|&nbsp;
+              ลงเวลากลับแล้ว: <b>{stats.totalWorkDays}</b> วัน &nbsp;|&nbsp;
               กลับก่อนเวลา: <b>{stats.totalEarly}</b> ครั้ง &nbsp;|&nbsp;
               วันหยุดตามปฏิทิน: <b>{stats.totalHolidays}</b> วัน &nbsp;|&nbsp;
               ลาหยุด: <b>{stats.totalLeave}</b> ครั้ง &nbsp;|&nbsp;

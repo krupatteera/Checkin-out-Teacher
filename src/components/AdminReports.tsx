@@ -34,7 +34,7 @@ import { getInternetTimeString, getInternetClockParts, getInternetNow } from '..
 interface AdminReportsProps {
   user: UserAccount;
   config: SchoolConfig;
-  activeView: 'dashboard' | 'summary' | 'map' | 'logs' | 'manual-clock';
+  activeView: 'dashboard' | 'summary' | 'map' | 'manual-clock';
   selectedDate: string;
   onDateChange: (d: string) => void;
   selectedMonth: string;
@@ -57,7 +57,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   const [dailyRecords, setDailyRecords] = useState<AttendanceRecord[]>([]);
   const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
   const [allUsers, setAllUsers] = useState<{ id: string; name: string; img?: string }[]>([]);
-  const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<'list' | 'individual-report'>('list');
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
@@ -95,18 +94,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     }
   };
 
-  const fetchLogs = async () => {
-    setLoading(true);
-    try {
-      const logs = await getSystemLogsList();
-      setSystemLogs(logs);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchUsers = async () => {
     try {
       const users = await getAllUsersList();
@@ -126,8 +113,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       fetchDaily(selectedDate);
     } else if (activeView === 'summary') {
       fetchMonth(selectedMonth);
-    } else if (activeView === 'logs') {
-      fetchLogs();
     }
   }, [activeView, selectedDate, selectedMonth]);
 
@@ -183,9 +168,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
         userDayMap[r.userId].lng = r.lng;
         userDayMap[r.userId].distance = r.distance;
       }
-      if (r.faceSnapshot && !userDayMap[r.userId].faceSnapshot) {
-        userDayMap[r.userId].faceSnapshot = r.faceSnapshot;
-      }
     } else if (r.action === 'LEAVE') {
       userDayMap[r.userId].leaveNote = formatTableLeaveDisplay(r.note);
       userDayMap[r.userId].leaveRecordId = r.id;
@@ -198,9 +180,10 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   const dailyList = Object.values(userDayMap);
 
   // Stats calculation
+  const totalIn = dailyList.filter((u) => u.timeIn !== '-').length;
+  const totalLate = dailyList.filter((u) => u.isLate).length;
   const totalOut = dailyList.filter((u) => u.timeOut !== '-').length;
   const totalEarly = dailyList.filter((u) => u.isEarly).length;
-  const totalNormalOut = Math.max(0, totalOut - totalEarly);
   const totalLeave = dailyList.filter((u) => u.leaveNote !== '-').length;
   const totalOfficial = dailyList.filter((u) => u.officialNote !== '-').length;
 
@@ -208,8 +191,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   interface MonthSummaryItem {
     userId: string;
     name: string;
+    countIn: number;
+    countLate: number;
     countOut: number;
-    countNormalOut: number;
     countEarly: number;
     countLeave: number;
     countOfficial: number;
@@ -223,21 +207,21 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       monthSummaryMap[r.userId] = {
         userId: r.userId,
         name: r.employeeName || uInfo?.name || r.userId,
+        countIn: 0,
+        countLate: 0,
         countOut: 0,
-        countNormalOut: 0,
         countEarly: 0,
         countLeave: 0,
         countOfficial: 0
       };
     }
 
-    if (r.action === 'OUT') {
+    if (r.action === 'IN') {
+      monthSummaryMap[r.userId].countIn += 1;
+      if (r.isLate) monthSummaryMap[r.userId].countLate += 1;
+    } else if (r.action === 'OUT') {
       monthSummaryMap[r.userId].countOut += 1;
-      if (r.isEarly) {
-        monthSummaryMap[r.userId].countEarly += 1;
-      } else {
-        monthSummaryMap[r.userId].countNormalOut += 1;
-      }
+      if (r.isEarly) monthSummaryMap[r.userId].countEarly += 1;
     } else if (r.action === 'LEAVE') {
       monthSummaryMap[r.userId].countLeave += 1;
     } else if (r.action === 'OFFICIAL') {
@@ -313,7 +297,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                 <div style="font-weight: bold; color: #6D28D9; font-size: 14px;">${log.name}</div>
                 <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">@${log.userId}</div>
                 <div style="display: inline-block; padding: 3px 8px; border-radius: 6px; background: #EDE9FE; color: #6D28D9; font-weight: bold; font-size: 11px;">
-                  เวลากลับ: ${log.timeOut !== '-' ? log.timeOut + ' น.' : 'ยังไม่ลงเวลากลับ'}
+                  เข้างาน: ${log.timeIn} น.
                 </div>
                 ${log.distance ? `<div style="font-size: 11px; color: #475569; margin-top: 4px;">ห่างจากโรงเรียน: ${log.distance} ม.</div>` : ''}
               </div>
@@ -357,8 +341,8 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       const innerRadius = radius * 0.65;
 
       const segments = [
-        { label: 'กลับตรงเวลา', value: totalNormalOut, color: '#10B981' },
-        { label: 'กลับก่อนเวลา', value: totalEarly, color: '#F59E0B' },
+        { label: 'กลับตรงเวลา/ปกติ', value: Math.max(0, totalOut - totalEarly), color: '#10B981' },
+        { label: 'กลับก่อนเวลา', value: totalEarly, color: '#F57C00' },
         { label: 'ลาหยุด', value: totalLeave, color: '#0288D1' },
         { label: 'ไปราชการ', value: totalOfficial, color: '#8B5CF6' }
       ];
@@ -385,9 +369,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       ctx.fillText(`${totalOut}`, centerX, centerY - 8);
       ctx.fillStyle = '#64748b';
       ctx.font = '12px Sarabun';
-      ctx.fillText('ลงเวลากลับ', centerX, centerY + 14);
+      ctx.fillText('คนลงเวลากลับ', centerX, centerY + 14);
     }
-  }, [activeView, totalOut, totalNormalOut, totalEarly, totalLeave, totalOfficial]);
+  }, [activeView, totalOut, totalEarly, totalLeave, totalOfficial]);
 
   const handleCancelLeave = async (item: AggregatedUserDay) => {
     if (!item.leaveRecordId) return;
@@ -543,33 +527,23 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
 
           {/* Stat Cards Grid with Pastel Accents */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-purple-500 to-indigo-700 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
+            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
               <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6" />
+                <LogOut className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div className="min-w-0">
                 <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalOut}</div>
-                <div className="text-[11px] sm:text-xs text-purple-100 font-medium truncate">ลงเวลากลับ (คน)</div>
+                <div className="text-[11px] sm:text-xs text-amber-100 font-medium truncate">ลงเวลากลับแล้ว (คน)</div>
               </div>
             </div>
 
-            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalNormalOut}</div>
-                <div className="text-[11px] sm:text-xs text-emerald-100 font-medium truncate">กลับตรงเวลา (คน)</div>
-              </div>
-            </div>
-
-            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-amber-500 to-amber-700 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
+            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-rose-500 to-rose-700 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
               <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div className="min-w-0">
                 <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalEarly}</div>
-                <div className="text-[11px] sm:text-xs text-amber-100 font-medium truncate">กลับก่อนเวลา (คน)</div>
+                <div className="text-[11px] sm:text-xs text-rose-100 font-medium truncate">กลับก่อนเวลา (คน)</div>
               </div>
             </div>
 
@@ -578,8 +552,18 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                 <CalendarOff className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div className="min-w-0">
-                <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalLeave + totalOfficial}</div>
-                <div className="text-[11px] sm:text-xs text-sky-100 font-medium truncate">ลา/ราชการ (คน)</div>
+                <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalLeave}</div>
+                <div className="text-[11px] sm:text-xs text-sky-100 font-medium truncate">ลาหยุด (คน)</div>
+              </div>
+            </div>
+
+            <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-purple-500 to-indigo-700 text-white shadow-sm sm:shadow-md flex items-center gap-2.5 sm:gap-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
+                <Briefcase className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xl sm:text-2xl md:text-3xl font-extrabold font-mono truncate">{totalOfficial}</div>
+                <div className="text-[11px] sm:text-xs text-purple-100 font-medium truncate">ไปราชการ (คน)</div>
               </div>
             </div>
           </div>
@@ -591,14 +575,14 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                 <PieChartIcon className="w-4 h-4 sm:w-5 sm:h-5 text-[#7C3AED]" /> สัดส่วนการลงเวลาประจำวัน
               </h3>
               <p className="text-[11px] sm:text-xs text-slate-500">
-                เปรียบเทียบสถิติการกลับตรงเวลา กลับก่อนเวลา การลา และการไปราชการ
+                เปรียบเทียบสถิติการกลับปกติ กลับก่อนเวลา การลา และการไปราชการ
               </p>
               <div className="grid grid-cols-2 gap-2 pt-2 text-[11px] sm:text-xs">
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#10B981] shrink-0" /> กลับตรงเวลา: {totalNormalOut}
+                  <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#10B981] shrink-0" /> กลับปกติ: {Math.max(0, totalOut - totalEarly)}
                 </div>
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#F59E0B] shrink-0" /> กลับก่อนเวลา: {totalEarly}
+                  <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#F57C00] shrink-0" /> กลับก่อน: {totalEarly}
                 </div>
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#0288D1] shrink-0" /> ลาหยุด: {totalLeave}
@@ -615,20 +599,20 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
           </div>
 
           {/* ========================================================================= */}
-          {/* ส่วนสรุปรายงาน 'กลับก่อนเวลา' ของแต่ละคนแบบตารางสรุปรายวัน                    */}
+          {/* ส่วนสรุปรายงาน 'กลับก่อนเวลา' ของแต่ละคนแบบตารางสรุปรายวัน                      */}
           {/* ========================================================================= */}
           {(() => {
             const irregularList = dailyList.filter((u) => u.isEarly);
 
             return (
-              <div className="bg-white rounded-2xl sm:rounded-3xl border border-amber-200/80 shadow-md overflow-hidden">
-                <div className="p-3.5 sm:p-5 bg-gradient-to-r from-amber-50 via-purple-50 to-indigo-50 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="bg-white rounded-2xl sm:rounded-3xl border border-rose-200/80 shadow-md overflow-hidden">
+                <div className="p-3.5 sm:p-5 bg-gradient-to-r from-rose-50 via-amber-50 to-purple-50 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] sm:text-[11px] font-bold mb-1 border border-amber-200">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" /> ตรวจสอบการลงเวลากลับก่อนกำหนดเวลา
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] sm:text-[11px] font-bold mb-1 border border-rose-200">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" /> ตรวจสอบการลงเวลากลับก่อนเวลา
                     </div>
                     <h3 className="text-sm sm:text-base font-extrabold text-slate-800 flex items-center gap-2">
-                      สรุปรายงานผู้กลับก่อนเวลารายวัน
+                      สรุปรายงานผู้ลงเวลากลับก่อนเวลารายวัน
                     </h3>
                     <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
                       เกณฑ์เวลา: กลับก่อนเวลาก่อน <span className="font-mono font-bold text-amber-600">{config.earlyTime || '16:30'} น.</span>
@@ -636,13 +620,13 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                    <span className="text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-white border border-amber-200 text-amber-700 shadow-2xs">
+                    <span className="text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 shadow-2xs">
                       พบ {irregularList.length} รายการ
                     </span>
                     {irregularList.length > 0 && (
                       <button
                         onClick={() => printReport('รายงานผู้กลับก่อนเวลาประจำวัน', 'irregularAttendanceTable')}
-                        className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                        className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
                       >
                         <Printer className="w-3.5 h-3.5" /> พิมพ์สรุป (A4)
                       </button>
@@ -662,52 +646,54 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                       </p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl sm:rounded-2xl border border-amber-100 shadow-2xs">
+                    <div className="overflow-x-auto rounded-xl sm:rounded-2xl border border-rose-100 shadow-2xs">
                       <table id="irregularAttendanceTable" className="w-full text-xs text-left text-slate-700 min-w-[500px]">
-                        <thead className="bg-amber-50/60 text-slate-700 uppercase font-bold text-[10px] tracking-wider border-b border-amber-100">
+                        <thead className="bg-rose-50/60 text-slate-700 uppercase font-bold text-[10px] tracking-wider border-b border-rose-100">
                           <tr>
                             <th className="px-4 py-3 text-center">ลำดับ</th>
                             <th className="px-4 py-3">ครู / บุคลากร</th>
                             <th className="px-4 py-3">เวลากลับ (OUT)</th>
-                            <th className="px-4 py-3 text-center">สถานะความผิดปกติ</th>
+                            <th className="px-4 py-3 text-center">สถานะ</th>
                             <th className="px-4 py-3">ระยะห่าง / พิกัด</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-amber-50">
-                          {irregularList.map((item, idx) => (
-                            <tr key={item.userId} className="hover:bg-amber-50/30 transition-colors">
-                              <td className="px-4 py-3 text-center font-bold text-slate-400 font-mono">
-                                {idx + 1}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="font-bold text-slate-800 text-sm">{item.name}</div>
-                              </td>
-                              <td className="px-4 py-3 font-mono">
-                                {item.timeOut !== '-' ? (
-                                  <span className="px-2.5 py-1 rounded-lg font-bold text-xs inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 border border-amber-300 font-extrabold">
-                                    <span>{item.timeOut} น.</span>
-                                    <span className="text-[10px] text-amber-900 font-bold">(กลับก่อน)</span>
+                        <tbody className="divide-y divide-rose-50">
+                          {irregularList.map((item, idx) => {
+                            return (
+                              <tr key={item.userId} className="hover:bg-rose-50/30 transition-colors">
+                                <td className="px-4 py-3 text-center font-bold text-slate-400 font-mono">
+                                  {idx + 1}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-slate-800 text-sm">{item.name}</div>
+                                </td>
+                                <td className="px-4 py-3 font-mono">
+                                  {item.timeOut !== '-' ? (
+                                    <span className="px-2.5 py-1 rounded-lg font-bold text-xs inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 border border-amber-300 font-extrabold">
+                                      <span>{item.timeOut} น.</span>
+                                      <span className="text-[10px] text-amber-900 font-bold">(กลับก่อน)</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="px-2.5 py-1 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-2xs">
+                                    กลับก่อนเวลา (ก่อน {config.earlyTime} น.)
                                   </span>
-                                ) : (
-                                  <span className="text-slate-400">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <span className="px-2.5 py-1 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-2xs">
-                                  กลับก่อนเวลา (ก่อน {config.earlyTime || '16:30'} น.)
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-slate-600 text-[11px]">
-                                {item.distance !== undefined ? (
-                                  <div className="flex items-center gap-1 text-slate-600">
-                                    <span>ห่างจุด ร.ร. <b>{item.distance}</b> ม.</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-400">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600 text-[11px]">
+                                  {item.distance !== undefined ? (
+                                    <div className="flex items-center gap-1 text-slate-600">
+                                      <span>ห่างจุด ร.ร. <b>{item.distance}</b> ม.</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -724,7 +710,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                 <Users className="w-4 h-4 text-[#7C3AED]" /> รายชื่อครูผู้ลงเวลาประจำวัน (ทั้งหมด)
               </h3>
               <button
-                onClick={() => printReport('รายงานการลงเวลากลับประจำวัน', 'dailyAttendanceTable')}
+                onClick={() => printReport('รายงานการลงเวลาประจำวัน', 'dailyAttendanceTable')}
                 className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-[11px] sm:text-xs font-semibold hover:bg-purple-50 hover:text-[#7C3AED] inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" /> พิมพ์รายงาน (A4)
@@ -732,7 +718,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
             </div>
 
             <div className="overflow-x-auto p-1.5 sm:p-2">
-              <table id="dailyAttendanceTable" className="w-full text-xs text-left text-slate-700 min-w-[560px]">
+              <table id="dailyAttendanceTable" className="w-full text-xs text-left text-slate-700 min-w-[550px]">
                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3 text-center">ลำดับ</th>
@@ -762,10 +748,10 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                               className={`px-2 py-0.5 rounded-full font-bold text-[11px] inline-flex items-center gap-1 ${
                                 item.isEarly
                                   ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : 'bg-purple-100 text-purple-800 border border-purple-200'
                               }`}
                             >
-                              {item.timeOut} น. {item.isEarly ? '(ก่อนเวลา)' : '(ตรงเวลา)'}
+                              {item.timeOut} น. {item.isEarly ? '(ก่อนเวลา)' : ''}
                             </span>
                           ) : (
                             <span className="text-slate-400">-</span>
@@ -821,7 +807,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 flex items-center gap-2">
                 <Users className="w-5 h-5 text-[#7C3AED]" /> สรุปการลงเวลารายบุคคลประจำเดือน
               </h2>
-              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">ยอดรวมลงเวลากลับ ลา และไปราชการ</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">ยอดรวมมาปฏิบัติงาน สาย ลา และไปราชการ</p>
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <input
@@ -854,16 +840,16 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
             </div>
 
             <div className="overflow-x-auto p-1.5 sm:p-2">
-              <table id="monthlySummaryTable" className="w-full text-xs text-left text-slate-700 min-w-[700px]">
+              <table id="monthlySummaryTable" className="w-full text-xs text-left text-slate-700 min-w-[650px]">
                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3 text-center">ลำดับ</th>
                     <th className="px-4 py-3">ชื่อ-นามสกุล</th>
-                    <th className="px-4 py-3 text-center bg-purple-50 text-purple-800">ลงเวลากลับ (วัน)</th>
-                    <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">กลับปกติ (วัน)</th>
-                    <th className="px-4 py-3 text-center bg-amber-50 text-amber-700">กลับก่อน (ครั้ง)</th>
+                    <th className="px-4 py-3 text-center bg-amber-50 text-amber-800">กลับปกติ (วัน)</th>
+                    <th className="px-4 py-3 text-center bg-orange-50 text-orange-700">กลับก่อน (ครั้ง)</th>
                     <th className="px-4 py-3 text-center bg-sky-50 text-sky-800">ลาหยุด (ครั้ง)</th>
                     <th className="px-4 py-3 text-center bg-purple-50 text-purple-800">ไปราชการ (ครั้ง)</th>
+                    <th className="px-4 py-3 text-center bg-emerald-50 text-emerald-800">รวมลงเวลากลับ (วัน)</th>
                     <th className="px-4 py-3 text-center">จัดการ</th>
                   </tr>
                 </thead>
@@ -879,13 +865,10 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                       <tr key={m.userId} className="hover:bg-purple-50/20 transition-colors">
                         <td className="px-4 py-3 text-center font-bold text-slate-400">{idx + 1}</td>
                         <td className="px-4 py-3 font-bold text-slate-800">{m.name}</td>
-                        <td className="px-4 py-3 text-center font-bold text-purple-700 bg-purple-50/40">
-                          {m.countOut}
+                        <td className="px-4 py-3 text-center font-bold text-amber-700 bg-amber-50/40">
+                          {Math.max(0, m.countOut - m.countEarly)}
                         </td>
-                        <td className="px-4 py-3 text-center font-bold text-emerald-700 bg-emerald-50/40">
-                          {m.countNormalOut}
-                        </td>
-                        <td className="px-4 py-3 text-center font-bold text-amber-600 bg-amber-50/40">
+                        <td className="px-4 py-3 text-center font-bold text-orange-600 bg-orange-50/40">
                           {m.countEarly}
                         </td>
                         <td className="px-4 py-3 text-center font-bold text-sky-700 bg-sky-50/40">
@@ -893,6 +876,9 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                         </td>
                         <td className="px-4 py-3 text-center font-bold text-purple-700 bg-purple-50/40">
                           {m.countOfficial}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-emerald-700 bg-emerald-50/40">
+                          {m.countOut}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button
@@ -970,7 +956,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3">ครู / บุคลากร</th>
-                    <th className="px-4 py-3">เวลากลับ (OUT)</th>
+                    <th className="px-4 py-3">เวลาที่สแกน (OUT)</th>
                     <th className="px-4 py-3">พิกัดดาวเทียม (Lat, Lng)</th>
                     <th className="px-4 py-3">ระยะห่างจากโรงเรียน</th>
                     <th className="px-4 py-3 text-right">เลื่อนไปยังจุด</th>
@@ -993,7 +979,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                             <div className="text-[11px] text-slate-400">@{item.userId}</div>
                           </td>
                           <td className="px-4 py-3 font-mono font-bold text-purple-800">
-                            {item.timeOut !== '-' ? `${item.timeOut} น.` : '-'}
+                            {item.timeOut !== '-' ? `${item.timeOut} น.` : `${item.timeIn} น.`}
                           </td>
                           <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
                             {item.lat?.toFixed(6)}, {item.lng?.toFixed(6)}
@@ -1010,8 +996,8 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                                   mapInstanceRef.current.setView([item.lat, item.lng], 19);
                                   window.scrollTo({
                                     top: mapContainerRef.current?.offsetTop
-                                       ? mapContainerRef.current.offsetTop - 30
-                                       : 0,
+                                      ? mapContainerRef.current.offsetTop - 30
+                                      : 0,
                                     behavior: 'smooth'
                                   });
                                 }
@@ -1026,155 +1012,6 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW: SYSTEM LOGS */}
-      {activeView === 'logs' && (
-        <div className="space-y-4 sm:space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-purple-100 shadow-sm">
-            <div>
-              <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 flex items-center gap-2">
-                <FileClock className="w-5 h-5 text-[#7C3AED]" /> ประวัติระบบและความปลอดภัย (System Logs)
-              </h2>
-              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">บันทึกกิจกรรมย้อนหลัง 100 รายการล่าสุดในระบบ</p>
-            </div>
-            <button
-              onClick={fetchLogs}
-              className="self-start sm:self-auto px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-[11px] sm:text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Search className="w-3.5 h-3.5" /> รีเฟรชประวัติ
-            </button>
-          </div>
-
-          <div className="bg-white rounded-2xl sm:rounded-3xl border border-purple-100 shadow-sm overflow-hidden p-1.5 sm:p-2">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left text-slate-700 min-w-[540px]">
-                <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
-                  <tr>
-                    <th className="px-4 py-3">วัน-เวลา</th>
-                    <th className="px-4 py-3">ผู้ใช้งาน</th>
-                    <th className="px-4 py-3">ประเภทกิจกรรม</th>
-                    <th className="px-4 py-3">รายละเอียด</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {systemLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-10 text-slate-400">
-                        ยังไม่มีประวัติการบันทึก Log ในระบบ
-                      </td>
-                    </tr>
-                  ) : (
-                    systemLogs.map((log, i) => (
-                      <tr key={i} className="hover:bg-purple-50/20 transition-colors">
-                        <td className="px-4 py-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                          {log.time}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-slate-800">
-                          {log.user}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              log.action === 'LOGIN'
-                                ? 'bg-sky-100 text-sky-800'
-                                : log.action === 'ATTENDANCE'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : log.action === 'CONFIG'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {log.action}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {log.details}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* VIEW: MANUAL CLOCK IN / OUT */}
-      {activeView === 'manual-clock' && (
-        <div className="space-y-4">
-          <h2 className="text-lg sm:text-xl font-extrabold text-slate-800">ลงเวลาด้วยระบบ (Manual)</h2>
-          <div className="bg-white p-6 rounded-3xl border border-purple-100 shadow-sm">
-            <div className="space-y-4 max-w-lg">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">เลือกครู</label>
-                <select 
-                  id="manualTeacherSelect"
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#8B5CF6] bg-slate-50"
-                >
-                  <option value="">-- เลือกครู --</option>
-                  {allUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">ประเภทการลงเวลา</label>
-                <select id="manualTypeSelect" className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#8B5CF6] bg-slate-50">
-                  <option value="OUT">ลงเวลากลับ (OUT)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">เวลา (HH:mm) [เวลาอินเทอร์เน็ต]</label>
-                <input type="time" id="manualTimeInput" className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#8B5CF6] bg-slate-50 font-mono font-bold" defaultValue={getInternetTimeString()} />
-              </div>
-              <button
-                onClick={async () => {
-                  const teacherId = (document.getElementById('manualTeacherSelect') as HTMLSelectElement).value;
-                  const type = (document.getElementById('manualTypeSelect') as HTMLSelectElement).value as 'OUT';
-                  const time = (document.getElementById('manualTimeInput') as HTMLInputElement).value;
-                  const selectedUser = allUsers.find(u => u.id === teacherId);
-                  if (!teacherId || !time || !selectedUser) {
-                    Swal.fire('ข้อผิดพลาด', 'กรุณาเลือกครูและระบุเวลาให้ครบถ้วน', 'error');
-                    return;
-                  }
-                  
-                  const confirm = await Swal.fire({
-                    title: 'ยืนยันการลงเวลา?',
-                    text: `ต้องการลงเวลากลับให้คุณ ${selectedUser.name} เวลา ${time} น. ใช่หรือไม่?`,
-                    icon: 'question',
-                    showCancelButton: true,
-                    confirmButtonText: 'ยืนยัน',
-                    cancelButtonText: 'ยกเลิก',
-                    confirmButtonColor: '#7C3AED'
-                  });
-
-                  if (confirm.isConfirmed) {
-                    try {
-                      const clockParts = getInternetClockParts();
-                      await saveAttendanceRecord({
-                        userId: selectedUser.id,
-                        employeeId: selectedUser.id,
-                        employeeName: selectedUser.name,
-                        action: type,
-                        date: selectedDate,
-                        dateThai: clockParts.thaiDate,
-                        time: time,
-                        timestamp: getInternetNow().getTime(),
-                        note: `Manual entry by admin: ${user.fullname}`
-                      });
-                      Swal.fire('สำเร็จ', 'บันทึกเวลาให้คุณครูเรียบร้อยแล้ว', 'success');
-                      fetchDaily(selectedDate);
-                    } catch (e) {
-                      Swal.fire('ผิดพลาด', 'ไม่สามารถบันทึกเวลาได้', 'error');
-                    }
-                  }
-                }}
-                className="w-full px-4 py-3 bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl text-sm font-bold transition-all cursor-pointer"
-              >
-                บันทึกการลงเวลา
-              </button>
             </div>
           </div>
         </div>

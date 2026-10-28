@@ -141,17 +141,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             onOpenHolidaysModal();
           }
         },
-        {
-          id: 'admin-logs',
-          name: 'ประวัติระบบ',
-          desc: 'System Logs',
-          gradient: 'from-[#6366F1] to-[#4338CA]',
-          icon: FileClock,
-          onClick: () => {
-            onCloseMobileMenu();
-            onSelectTab('admin-logs');
-          }
-        },
+
         {
           id: 'admin-manual-clock',
           name: 'ลงเวลาด้วยระบบ',
@@ -514,22 +504,6 @@ export const Navigation: React.FC<NavigationProps> = ({
                   </button>
                 </li>
 
-                <li>
-                  <button
-                    onClick={() => {
-                      onSelectTab('admin-logs');
-                      onCloseMobileMenu();
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer group ${
-                      currentTab === 'admin-logs'
-                        ? 'bg-gradient-to-r from-[#7C3AED] via-[#8B5CF6] to-[#A78BFA] text-white shadow-md shadow-purple-800/20'
-                        : 'text-slate-600 hover:bg-purple-50/60 hover:text-purple-700 hover:translate-x-1'
-                    }`}
-                  >
-                    <FileClock className="w-4 h-4 transition-transform group-hover:scale-110" />
-                    <span>ประวัติระบบ (Logs)</span>
-                  </button>
-                </li>
 
                 <li>
                   <button
@@ -806,6 +780,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
               <span className="text-[9px] sm:text-[10px] font-bold mt-0.5 truncate">ลงเวลา</span>
             </button>
+
 
 
             <button
