@@ -158,19 +158,19 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
       isWeekend,
       currentOverride
     });
-    setCustomHolidayName(currentOverride?.name || (isWeekend ? 'วันทำการพิเศษ (สอนชดเชย/กิจกรรม)' : 'วันหยุดพิเศษ'));
+    setCustomHolidayName(currentOverride?.name || (isWeekend ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด'));
   };
 
-  // Toggle or Save Holiday/Workday
-  const handleSaveDaySetting = async (asHoliday: boolean) => {
+  // Save Holiday (กำหนดเฉพาะวันหยุด)
+  const handleSaveHoliday = async () => {
     if (!activeDateModal) return;
     setActionLoading(true);
 
     try {
       const setting: HolidaySetting = {
         date: activeDateModal.dateStr,
-        name: customHolidayName.trim() || (asHoliday ? 'วันหยุดโรงเรียน' : 'วันทำการพิเศษ'),
-        isHoliday: asHoliday
+        name: customHolidayName.trim() || 'วันหยุด',
+        isHoliday: true
       };
 
       await saveSchoolHoliday(setting, adminUsername);
@@ -179,8 +179,8 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
       if (onHolidaysChange) onHolidaysChange(nextMap);
       setActiveDateModal(null);
       Swal.fire({
-        title: 'บันทึกสำเร็จ!',
-        text: `กำหนดวันที่ ${activeDateModal.dateStr} เป็น "${setting.isHoliday ? 'วันหยุด' : 'วันทำการพิเศษ'}" เรียบร้อยแล้ว`,
+        title: 'บันทึกวันหยุดสำเร็จ!',
+        text: `กำหนดวันที่ ${activeDateModal.dateStr} เป็น "วันหยุด (${setting.name})" เรียบร้อยแล้ว`,
         icon: 'success',
         timer: 1500,
         showConfirmButton: false
@@ -192,7 +192,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
     }
   };
 
-  // Reset day to default rule (Sat-Sun = holiday, Mon-Fri = workday)
+  // Cancel holiday / Reset to default
   const handleResetDaySetting = async () => {
     if (!activeDateModal) return;
     setActionLoading(true);
@@ -205,8 +205,8 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
       if (onHolidaysChange) onHolidaysChange(next);
       setActiveDateModal(null);
       Swal.fire({
-        title: 'รีเซ็ตสำเร็จ!',
-        text: `คืนค่าวันที่ ${activeDateModal.dateStr} เป็นค่าเริ่มต้นอัตโนมัติแล้ว`,
+        title: 'ยกเลิกสำเร็จ!',
+        text: `ยกเลิกวันหยุดวันที่ ${activeDateModal.dateStr} เรียบร้อยแล้ว (กลับเป็นวันทำการปกติ)`,
         icon: 'success',
         timer: 1500,
         showConfirmButton: false
@@ -295,7 +295,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
   // Month Statistics
   let monthWorkdaysCount = 0;
   let monthHolidaysCount = 0;
-  const monthSpecialHolidays: { dateStr: string; day: number; name: string; isSpecialWorkday: boolean }[] = [];
+  const monthCustomHolidays: { dateStr: string; day: number; name: string }[] = [];
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${currentYearMonth}-${String(d).padStart(2, '0')}`;
@@ -304,14 +304,9 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
     const override = holidaysMap[dateStr];
 
-    let isHoliday = isWeekend;
-    if (override !== undefined) {
-      isHoliday = override.isHoliday;
-      if (override.isHoliday && !isWeekend) {
-        monthSpecialHolidays.push({ dateStr, day: d, name: override.name, isSpecialWorkday: false });
-      } else if (!override.isHoliday && isWeekend) {
-        monthSpecialHolidays.push({ dateStr, day: d, name: override.name, isSpecialWorkday: true });
-      }
+    const isHoliday = isWeekend || (override !== undefined && override.isHoliday);
+    if (override !== undefined && override.isHoliday && !isWeekend) {
+      monthCustomHolidays.push({ dateStr, day: d, name: override.name });
     }
 
     if (isHoliday) {
@@ -334,10 +329,10 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-extrabold tracking-tight">
-                กำหนดวันหยุดและวันทำการ (School Calendar)
+                กำหนดวันหยุด (School Holidays)
               </h2>
               <p className="text-[11px] sm:text-xs text-purple-100 font-medium">
-                เสาร์-อาทิตย์หยุดอัตโนมัติ • คลิกที่วันเพื่อเปิดเป็นวันทำการพิเศษ หรือกำหนดวันหยุดนักขัตฤกษ์
+                เสาร์-อาทิตย์เป็นวันหยุดอัตโนมัติ • คลิกที่วันเพื่อกำหนดเป็นวันหยุดหรือยกเลิกวันหยุด
               </p>
             </div>
           </div>
@@ -448,13 +443,13 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
               </div>
             </div>
 
-            <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold">
+            <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold">
                 <Sparkles className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-base font-extrabold font-mono text-sky-900">{monthSpecialHolidays.length} วัน</div>
-                <div className="text-[11px] text-sky-700 font-medium">วันกำหนดพิเศษ</div>
+                <div className="text-base font-extrabold font-mono text-rose-900">{monthCustomHolidays.length} วัน</div>
+                <div className="text-[11px] text-rose-700 font-medium">วันหยุดที่กำหนดเพิ่ม</div>
               </div>
             </div>
           </div>
@@ -491,25 +486,8 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                 const override = holidaysMap[dateStr];
 
-                // Status logic:
-                // If override exists:
-                //   override.isHoliday = true -> Holiday
-                //   override.isHoliday = false -> Special Workday (opened weekend)
-                // If no override:
-                //   isWeekend -> Automatic Holiday
-                //   !isWeekend -> Automatic Workday
-                let isHoliday = isWeekend;
-                let isSpecialWorkday = false;
-                let isSpecialHoliday = false;
-
-                if (override !== undefined) {
-                  isHoliday = override.isHoliday;
-                  if (override.isHoliday && !isWeekend) {
-                    isSpecialHoliday = true; // Mon-Fri set to holiday
-                  } else if (!override.isHoliday && isWeekend) {
-                    isSpecialWorkday = true; // Sat-Sun set to workday
-                  }
-                }
+                const isAddedHoliday = !isWeekend && override !== undefined && override.isHoliday;
+                const isHoliday = isWeekend || isAddedHoliday;
 
                 return (
                   <button
@@ -517,9 +495,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                     type="button"
                     onClick={() => handleDayClick(dayNum)}
                     className={`min-h-[68px] sm:min-h-[84px] p-1.5 sm:p-2 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between group hover:scale-[1.02] hover:shadow-md ${
-                      isSpecialWorkday
-                        ? 'bg-blue-50/90 border-blue-400 text-blue-900 ring-2 ring-blue-300/60'
-                        : isSpecialHoliday
+                      isAddedHoliday
                         ? 'bg-rose-50/90 border-rose-400 text-rose-900 ring-2 ring-rose-300/60'
                         : isHoliday
                         ? 'bg-amber-50/60 border-amber-200 text-amber-900'
@@ -529,9 +505,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                     <div className="flex items-center justify-between w-full">
                       <span
                         className={`text-xs sm:text-sm font-extrabold font-mono w-6 h-6 rounded-lg flex items-center justify-center ${
-                          isSpecialWorkday
-                            ? 'bg-blue-600 text-white'
-                            : isSpecialHoliday
+                          isAddedHoliday
                             ? 'bg-rose-600 text-white'
                             : isHoliday
                             ? 'bg-amber-500 text-white'
@@ -543,10 +517,8 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
 
                       {/* Small badge label */}
                       <span className="text-[9px] font-bold truncate max-w-[65px] hidden sm:inline">
-                        {isSpecialWorkday
-                          ? 'วันทำการ*'
-                          : isSpecialHoliday
-                          ? 'วันหยุด*'
+                        {isAddedHoliday
+                          ? 'วันหยุด'
                           : isHoliday
                           ? 'หยุด ส.-อา.'
                           : 'วันทำการ'}
@@ -557,9 +529,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                     <div className="w-full mt-1">
                       {override?.name ? (
                         <div
-                          className={`text-[9px] sm:text-[10px] font-bold line-clamp-2 leading-tight ${
-                            isSpecialWorkday ? 'text-blue-700' : 'text-rose-700'
-                          }`}
+                          className="text-[9px] sm:text-[10px] font-bold line-clamp-2 leading-tight text-rose-700"
                           title={override.name}
                         >
                           {override.name}
@@ -587,48 +557,37 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                 <span className="w-3 h-3 rounded-full bg-amber-400" /> วันหยุดประจำสัปดาห์ (ส.-อา.)
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-rose-500" /> วันหยุดพิเศษ / นักขัตฤกษ์
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-blue-600" /> วันทำการพิเศษ (เปิดเสาร์-อาทิตย์)
+                <span className="w-3 h-3 rounded-full bg-rose-500" /> วันหยุดที่กำหนด (วันหยุดราชการ / โรงเรียน)
               </span>
             </div>
             <div className="text-[10px] text-purple-700 font-semibold">
-              * แตะที่วันใดก็ได้เพื่อปรับเปลี่ยนสถานะ
+              * แตะที่วันใดก็ได้เพื่อกำหนดหรือยกเลิกวันหยุด
             </div>
           </div>
 
-          {/* Special Days List for this month */}
-          {monthSpecialHolidays.length > 0 && (
-            <div className="bg-purple-50/50 rounded-2xl border border-purple-100 p-3.5 space-y-2">
-              <h4 className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-[#7C3AED]" />
-                รายการวันกำหนดพิเศษในเดือน {selectedMonthThaiName} ({monthSpecialHolidays.length} วัน)
+          {/* Custom Holidays List for this month */}
+          {monthCustomHolidays.length > 0 && (
+            <div className="bg-rose-50/50 rounded-2xl border border-rose-100 p-3.5 space-y-2">
+              <h4 className="text-xs font-extrabold text-rose-900 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-rose-600" />
+                รายการวันหยุดที่กำหนดในเดือน {selectedMonthThaiName} ({monthCustomHolidays.length} วัน)
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {monthSpecialHolidays.map((item) => (
+                {monthCustomHolidays.map((item) => (
                   <div
                     key={item.dateStr}
-                    className="p-2.5 bg-white rounded-xl border border-purple-100 shadow-2xs flex items-center justify-between gap-2"
+                    className="p-2.5 bg-white rounded-xl border border-rose-100 shadow-2xs flex items-center justify-between gap-2"
                   >
                     <div>
                       <div className="font-bold text-slate-800">
                         วันที่ {item.day} {selectedMonthThaiName}
                       </div>
-                      <div
-                        className={`text-[11px] font-semibold ${
-                          item.isSpecialWorkday ? 'text-blue-700' : 'text-rose-600'
-                        }`}
-                      >
+                      <div className="text-[11px] font-semibold text-rose-600">
                         {item.name}
                       </div>
                     </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        item.isSpecialWorkday ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {item.isSpecialWorkday ? 'วันทำการพิเศษ' : 'วันหยุดพิเศษ'}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                      วันหยุด
                     </span>
                   </div>
                 ))}
@@ -658,7 +617,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C3AED] bg-purple-50 px-2 py-0.5 rounded-full">
-                  จัดการสถานะวัน
+                  กำหนดวันหยุด
                 </span>
                 <h3 className="text-base font-extrabold text-slate-800 mt-1">
                   {activeDateModal.dayOfWeekName}ที่ {activeDateModal.dayNum} {selectedMonthThaiName} {selectedYearBE}
@@ -677,18 +636,12 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
             <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
               <div>
                 <b>สถานะปัจจุบัน:</b>{' '}
-                {activeDateModal.currentOverride !== undefined ? (
-                  activeDateModal.currentOverride.isHoliday ? (
-                    <span className="font-bold text-rose-600">
-                      วันหยุดพิเศษ ({activeDateModal.currentOverride.name})
-                    </span>
-                  ) : (
-                    <span className="font-bold text-blue-600">
-                      วันทำการพิเศษ ({activeDateModal.currentOverride.name})
-                    </span>
-                  )
+                {activeDateModal.currentOverride !== undefined && activeDateModal.currentOverride.isHoliday ? (
+                  <span className="font-bold text-rose-600">
+                    วันหยุด ({activeDateModal.currentOverride.name})
+                  </span>
                 ) : activeDateModal.isWeekend ? (
-                  <span className="font-bold text-amber-700">วันหยุดสุดสัปดาห์ (เสาร์-อาทิตย์ อัตโนมัติ)</span>
+                  <span className="font-bold text-amber-700">วันหยุดประจำสัปดาห์ (เสาร์-อาทิตย์ อัตโนมัติ)</span>
                 ) : (
                   <span className="font-bold text-emerald-700">วันทำการตามปกติ (จันทร์-ศุกร์ อัตโนมัติ)</span>
                 )}
@@ -698,13 +651,13 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
             {/* Name/Reason Input */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                ชื่อวันสำคัญ / หมายเหตุ
+                ชื่อวันหยุด / หมายเหตุ
               </label>
               <input
                 type="text"
                 value={customHolidayName}
                 onChange={(e) => setCustomHolidayName(e.target.value)}
-                placeholder="เช่น วันหยุดนักขัตฤกษ์ หรือ สอนชดเชย..."
+                placeholder="เช่น วันหยุดนักขัตฤกษ์, วันหยุดสถานศึกษา..."
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-[#8B5CF6] text-xs bg-slate-50/50"
               />
             </div>
@@ -713,25 +666,15 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
             <div className="space-y-2 pt-2">
               {/* Option 1: Set as Holiday */}
               <button
-                onClick={() => handleSaveDaySetting(true)}
+                onClick={handleSaveHoliday}
                 disabled={actionLoading}
                 className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <Coffee className="w-4 h-4" />
-                <span>กำหนดให้เป็น "วันหยุด"</span>
+                <span>บันทึกเป็น "วันหยุด"</span>
               </button>
 
-              {/* Option 2: Set as Workday (Great for opening Saturdays/Sundays) */}
-              <button
-                onClick={() => handleSaveDaySetting(false)}
-                disabled={actionLoading}
-                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-              >
-                <Briefcase className="w-4 h-4" />
-                <span>กำหนดให้เป็น "วันทำการ (เปิดทำงาน/เรียน)"</span>
-              </button>
-
-              {/* Option 3: Reset to default */}
+              {/* Option 2: Reset to default */}
               {activeDateModal.currentOverride !== undefined && (
                 <button
                   onClick={handleResetDaySetting}
@@ -739,7 +682,7 @@ export const AdminHolidaysModal: React.FC<AdminHolidaysModalProps> = ({
                   className="w-full py-2 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>รีเซ็ตกลับเป็นค่าเริ่มต้นอัตโนมัติ</span>
+                  <span>ยกเลิกวันหยุด (คืนค่าเป็นวันทำการปกติ)</span>
                 </button>
               )}
             </div>

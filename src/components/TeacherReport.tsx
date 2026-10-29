@@ -83,6 +83,7 @@ interface DayAttendanceRow {
   date: string;
   dateThai: string;
   dayOfWeekThai: string;
+  dayStatusThai: string;
   teacherName: string;
   timeIn: string;
   isLate: boolean;
@@ -119,14 +120,14 @@ export function evaluateDayHolidayStatus(
     if (override.isHoliday === false) {
       return {
         isHoliday: false,
-        holidayName: override.name || 'วันทำการพิเศษ (เปิดทำการ)',
+        holidayName: override.name || 'วันทำการ',
         isSpecialOverride: true
       };
     }
     if (override.isHoliday === true) {
       return {
         isHoliday: true,
-        holidayName: override.name || (isWeekend ? 'วันหยุดสุดสัปดาห์' : 'วันหยุดโรงเรียน/ราชการ'),
+        holidayName: override.name || (isWeekend ? 'วันหยุดประจำสัปดาห์' : 'วันหยุด'),
         isSpecialOverride: true
       };
     }
@@ -135,7 +136,7 @@ export function evaluateDayHolidayStatus(
   if (isWeekend) {
     return {
       isHoliday: true,
-      holidayName: 'วันหยุดสุดสัปดาห์',
+      holidayName: 'วันหยุดประจำสัปดาห์',
       isSpecialOverride: false
     };
   }
@@ -272,7 +273,9 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           continue;
         }
 
-        const dayOfWeek = thaiDays[dayOfWeekIndex];
+        const dayOfWeek = `วัน${thaiDays[dayOfWeekIndex]}`;
+
+        const dayStatusThai = isHoliday ? 'วันหยุด' : 'วันทำการ';
 
         let timeIn = '-';
         let isLate = false;
@@ -307,14 +310,14 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
             }
           });
         } else if (isHoliday) {
-          timeIn = 'วันหยุด';
-          timeOut = 'ไม่สามารถลงเวลาได้';
+          timeIn = '-';
+          timeOut = '-';
         } else {
           timeOut = 'ไม่ลงเวลา';
         }
 
         // สรุปสถิติ (นับวันเมื่อมีข้อมูลลงเวลากลับจริง)
-        if (timeOut !== '-' && timeOut !== 'ไม่สามารถลงเวลาได้' && timeOut !== 'ไม่ลงเวลา') countWork++;
+        if (timeOut !== '-' && timeOut !== 'ไม่ลงเวลา') countWork++;
         if (isEarly) countEarly++;
         if (leaveNote !== '-') countLeave++;
         if (officialNote !== '-') countOfficial++;
@@ -324,6 +327,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           date: dateStr,
           dateThai: formatThaiDateText(dateStr),
           dayOfWeekThai: dayOfWeek,
+          dayStatusThai,
           teacherName: user.fullname,
           timeIn,
           isLate,
@@ -394,7 +398,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           .print-container {
             width: 100% !important;
             margin: 0 !important;
-            padding: 4mm 6mm !important;
+            padding: 2mm 3mm !important;
             box-shadow: none !important;
             border: none !important;
             border-radius: 0 !important;
@@ -413,7 +417,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           .print-black-table th, .print-black-table td {
             border: 1px solid #000000 !important;
             color: #000000 !important;
-            padding: 5px 6px !important;
+            padding: 4px 6px !important;
           }
           .print-black-table th {
             background-color: #f2f2f2 !important;
@@ -421,7 +425,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           }
           @page {
             size: A4 portrait;
-            margin: 5mm 6mm !important;
+            margin: 4mm 5mm !important;
           }
         }
       `}</style>
@@ -591,28 +595,25 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
       {/* Main Document Box (Strictly Black Text, Black Borders for Official Government Standard) */}
       <div className="print-container bg-white rounded-2xl sm:rounded-3xl border border-black shadow-md overflow-hidden text-black">
         {/* หัวกระดาษ: ชื่อโรงเรียน, ชื่อระบบ, ข้อมูลช่วงวันที่ */}
-        <div className="p-5 sm:p-6 border-b border-black text-center space-y-1 bg-white">
-          <h2 className="text-lg sm:text-xl font-extrabold text-black tracking-tight print-black-text">
+        <div className="p-3.5 sm:p-4 border-b border-black text-center space-y-1 bg-white">
+          <h2 className="text-base sm:text-lg font-extrabold text-black tracking-tight print-black-text">
             {config.orgName || 'โรงเรียนบ้านดุงวิทยา'}
           </h2>
-          <h3 className="text-sm sm:text-base font-bold text-black print-black-text">
+          <h3 className="text-xs sm:text-sm font-bold text-black print-black-text">
             {config.systemName || 'ระบบลงเวลาปฏิบัติงานออนไลน์สำหรับครูและบุคลากรทางการศึกษา'}
           </h3>
-          <p className="text-xs sm:text-sm font-semibold text-black print-black-text pt-0.5">
+          <p className="text-xs font-semibold text-black print-black-text pt-0.5">
             รายงานการลงเวลาปฏิบัติงาน {dateRangeDisplay}
           </p>
-          <div className="pt-2 text-xs text-black flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-black/40 mt-3 print-black-text">
+          <div className="pt-1.5 text-xs text-black flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-black/40 mt-2 print-black-text">
             <span><b>ชื่อครูผู้รายงาน:</b> {user.fullname}</span>
             <span><b>ตำแหน่ง:</b> {user.position || 'ครูผู้สอน'}</span>
             <span><b>สังกัด/กลุ่มสาระ:</b> {user.department || config.orgAffiliation || '-'}</span>
           </div>
-          <div className="pt-2 text-[11px] font-bold text-black border-t border-dashed border-black/30 mt-2 flex items-center justify-center gap-1">
-            <span>พิมพ์เอกสารเมื่อวันที่/เวลา (แบบละเอียด): {getInternetClockParts().thaiDate} เวลา {getInternetTimeString()} น. (ระบบเวลามาตรฐานอินเทอร์เน็ต / NIMT)</span>
-          </div>
         </div>
 
         {/* Info toolbar (Hidden during print) */}
-        <div className="no-print px-4 py-2.5 border-b border-black/20 bg-slate-50 flex items-center justify-between gap-3 text-xs">
+        <div className="no-print px-4 py-2 border-b border-black/20 bg-slate-50 flex items-center justify-between gap-3 text-xs">
           <div className="text-xs font-bold text-slate-700">
             {dateRangeDisplay} (รวม {reportRows.length} รายการในตาราง)
           </div>
@@ -623,24 +624,27 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           </div>
         </div>
 
-        {/* Report Table: Columns: (วันที่, ชื่อครู, เวลากลับ, ลา, ไปราชการ) - NO IMAGES IN TABLE & NO 'ขาดงาน' */}
-        <div className="overflow-x-auto p-2 sm:p-5">
+        {/* Report Table: Columns: (วันที่, วัน, สถานะวัน, เวลากลับ, ลา, ไปราชการ) */}
+        <div className="overflow-x-auto p-1.5 sm:p-3">
           <table className="print-black-table w-full text-xs text-left border-collapse border border-black min-w-[600px] text-black">
             <thead>
               <tr className="bg-slate-100 border-b border-black text-black">
-                <th className="border border-black px-3.5 py-2.5 text-center font-bold text-black w-44">
+                <th className="border border-black px-3 py-2 text-center font-bold text-black w-36">
                   วันที่
                 </th>
-                <th className="border border-black px-4 py-2.5 text-left font-bold text-black">
-                  ชื่อครู
+                <th className="border border-black px-2.5 py-2 text-center font-bold text-black w-24">
+                  วัน
                 </th>
-                <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-36">
+                <th className="border border-black px-2.5 py-2 text-center font-bold text-black w-32">
+                  สถานะวัน
+                </th>
+                <th className="border border-black px-2.5 py-2 text-center font-bold text-black w-28">
                   เวลากลับ
                 </th>
-                <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-32">
+                <th className="border border-black px-2.5 py-2 text-center font-bold text-black w-24">
                   ลา
                 </th>
-                <th className="border border-black px-3 py-2.5 text-center font-bold text-black w-36">
+                <th className="border border-black px-2.5 py-2 text-center font-bold text-black w-28">
                   ไปราชการ
                 </th>
               </tr>
@@ -648,14 +652,14 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="border border-black text-center py-10 text-black">
+                  <td colSpan={6} className="border border-black text-center py-8 text-black">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-black" />
                     กำลังประมวลผลข้อมูลรายงานการลงเวลา...
                   </td>
                 </tr>
               ) : reportRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="border border-black text-center py-10 text-black">
+                  <td colSpan={6} className="border border-black text-center py-8 text-black">
                     ไม่พบข้อมูลการลงเวลาในช่วงวันที่กำหนด
                   </td>
                 </tr>
@@ -665,34 +669,35 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
                     key={row.date}
                     className="hover:bg-slate-50 transition-colors text-black"
                   >
-                    <td className="border border-black px-3.5 py-2 text-center text-black">
-                      <span className="font-bold">{row.dateThai}</span>{' '}
-                      <span className="text-[11px] text-black">({row.dayOfWeekThai})</span>
-                      {row.isHoliday && (
-                        <span className="block text-[10px] text-black font-semibold mt-0.5">
-                          {row.holidayName ? `(${row.holidayName})` : '(วันหยุด)'}
-                        </span>
-                      )}
+                    <td className="border border-black px-3 py-1.5 text-center text-black font-medium">
+                      {row.dateThai}
                     </td>
-                    <td className="border border-black px-4 py-2 font-bold text-black">
-                      {row.teacherName}
+                    <td className="border border-black px-2.5 py-1.5 text-center text-black font-medium">
+                      {row.dayOfWeekThai}
                     </td>
-                    <td className="border border-black px-3 py-2 text-center font-bold text-black">
+                    <td className="border border-black px-2.5 py-1.5 text-center text-black">
+                      <span className={row.isHoliday ? 'font-semibold text-slate-900' : 'text-slate-700'}>
+                        {row.dayStatusThai}
+                      </span>
+                    </td>
+                    <td className="border border-black px-2.5 py-1.5 text-center font-bold text-black">
                       {row.isHoliday && !row.hasRecord ? (
-                        <span className="inline-block text-black font-extrabold text-[11px]">ไม่สามารถลงเวลาได้</span>
+                        <span className="text-black font-mono font-normal">-</span>
                       ) : row.timeOut === 'ไม่ลงเวลา' ? (
                         <span className="inline-block text-rose-700 font-extrabold text-[11px] print-black-text">ไม่ลงเวลา</span>
-                      ) : (
+                      ) : row.timeOut !== '-' ? (
                         <>
                           <span className="font-mono">{row.timeOut}</span>
                           {row.isEarly && <span className="ml-1 text-[10px] font-bold text-black">(ก่อนเวลา)</span>}
                         </>
+                      ) : (
+                        <span className="text-black font-mono font-normal">-</span>
                       )}
                     </td>
-                    <td className="border border-black px-3 py-2 text-center text-black">
+                    <td className="border border-black px-2.5 py-1.5 text-center text-black">
                       {row.leave}
                     </td>
-                    <td className="border border-black px-3 py-2 text-center text-black">
+                    <td className="border border-black px-2.5 py-1.5 text-center text-black">
                       {row.official}
                     </td>
                   </tr>
@@ -703,8 +708,8 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
         </div>
 
         {/* สรุปข้อมูลรายงาน (ยกเลิกขาดงานตามคำขอ) */}
-        <div className="p-4 bg-white border-t border-black text-xs text-black space-y-4">
-          <div className="border border-black p-3 bg-white space-y-1">
+        <div className="p-3 sm:p-4 bg-white border-t border-black text-xs text-black space-y-3">
+          <div className="border border-black p-2.5 bg-white space-y-1">
             <p className="font-bold">
               สรุปผลการปฏิบัติราชการ {dateRangeDisplay} (รวม {reportRows.length} วัน):
             </p>
@@ -718,14 +723,14 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
           </div>
 
           {/* ช่องลงนามรับรองเอกสารราชการ */}
-          <div className="mt-8 pt-4 grid grid-cols-2 gap-6 text-center text-xs">
-            <div className="space-y-1.5">
+          <div className="mt-4 pt-2 grid grid-cols-2 gap-6 text-center text-xs">
+            <div className="space-y-1">
               <p>ลงชื่อ ...........................................................</p>
               <p className="font-bold">({user.fullname})</p>
               <p>ตำแหน่ง {user.position || 'ครูผู้สอน'}</p>
               <p className="text-[11px]">ผู้รายงาน</p>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <p>ลงชื่อ ...........................................................</p>
               <p className="font-bold">(...........................................................)</p>
               <p>ผู้อำนวยการ{config.orgName}</p>
@@ -733,7 +738,7 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
             </div>
           </div>
 
-          <div className="mt-6 text-right text-[10px] text-black">
+          <div className="mt-3 text-right text-[10px] text-black">
             พิมพ์จากระบบเมื่อ: {getInternetClockParts().thaiDate} เวลา {getInternetTimeString()} น. (เวลามาตรฐานอินเทอร์เน็ต)
           </div>
         </div>

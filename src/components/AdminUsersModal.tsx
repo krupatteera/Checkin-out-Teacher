@@ -18,8 +18,10 @@ import {
   Copy,
   Check,
   Bluetooth,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { UserAccount } from '../types';
 import {
   getAllUsersList,
@@ -186,6 +188,56 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     }
   };
 
+  const handleExportExcel = () => {
+    if (users.length === 0) {
+      Swal.fire('แจ้งเตือน', 'ไม่มีข้อมูลรายชื่อครูและบุคลากรสำหรับส่งออก', 'info');
+      return;
+    }
+
+    const dataToExport = filteredUsers.length > 0 ? filteredUsers : users;
+
+    const rows = dataToExport.map((u, index) => ({
+      'ลำดับ': index + 1,
+      'ชื่อ-นามสกุล': u.fullname || '-',
+      'ชื่อผู้ใช้งาน (User)': u.username || u.id || '-',
+      'รหัสผ่าน (Password)': u.password || '-',
+      'ตำแหน่ง': u.position || '-',
+      'สังกัด/กลุ่มสาระ': u.department || '-',
+      'สิทธิ์การใช้งาน': u.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'ครู/บุคลากร',
+      'สถานะบัญชี': u.status === 'PENDING' ? 'รออนุมัติ' : u.status === 'INACTIVE' ? 'ระงับการใช้งาน' : 'ใช้งานได้ปกติ',
+      'Bluetooth MAC Address': u.registeredMac || '-',
+      'วันที่ลงทะเบียน': u.createdAt ? new Date(u.createdAt).toLocaleDateString('th-TH') : '-'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    worksheet['!cols'] = [
+      { wch: 8 },  // ลำดับ
+      { wch: 28 }, // ชื่อ-นามสกุล
+      { wch: 20 }, // User
+      { wch: 18 }, // Password
+      { wch: 20 }, // ตำแหน่ง
+      { wch: 24 }, // สังกัด/กลุ่มสาระ
+      { wch: 20 }, // สิทธิ์การใช้งาน
+      { wch: 16 }, // สถานะบัญชี
+      { wch: 24 }, // Bluetooth MAC Address
+      { wch: 18 }  // วันที่ลงทะเบียน
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'รายชื่อครูและบุคลากร');
+
+    const todayDate = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `รายชื่อครูและบุคลากร_${todayDate}.xlsx`);
+
+    Swal.fire({
+      title: 'ส่งออกไฟล์สำเร็จ!',
+      text: `ดาวน์โหลดไฟล์ Excel รายชื่อครูและบุคลากรเรียบร้อยแล้ว (${rows.length} รายการ)`,
+      icon: 'success',
+      confirmButtonColor: '#7C3AED'
+    });
+  };
+
   // Filter users based on search & status tab
   const filteredUsers = users.filter((u) => {
     const matchSearch =
@@ -331,6 +383,15 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
               title="รีเฟรชข้อมูล"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+
+            <button
+              onClick={handleExportExcel}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all shrink-0"
+              title="ส่งออกรายชื่อครูและบุคลากรเป็นไฟล์ Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>ส่งออก Excel</span>
             </button>
 
             <button
