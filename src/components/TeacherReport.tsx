@@ -309,10 +309,12 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
         } else if (isHoliday) {
           timeIn = 'วันหยุด';
           timeOut = 'ไม่สามารถลงเวลาได้';
+        } else {
+          timeOut = 'ไม่ลงเวลา';
         }
 
         // สรุปสถิติ (นับวันเมื่อมีข้อมูลลงเวลากลับจริง)
-        if (timeOut !== '-' && timeOut !== 'ไม่สามารถลงเวลาได้') countWork++;
+        if (timeOut !== '-' && timeOut !== 'ไม่สามารถลงเวลาได้' && timeOut !== 'ไม่ลงเวลา') countWork++;
         if (isEarly) countEarly++;
         if (leaveNote !== '-') countLeave++;
         if (officialNote !== '-') countOfficial++;
@@ -678,6 +680,8 @@ export const TeacherReport: React.FC<TeacherReportProps> = ({ user, config }) =>
                     <td className="border border-black px-3 py-2 text-center font-bold text-black">
                       {row.isHoliday && !row.hasRecord ? (
                         <span className="inline-block text-black font-extrabold text-[11px]">ไม่สามารถลงเวลาได้</span>
+                      ) : row.timeOut === 'ไม่ลงเวลา' ? (
+                        <span className="inline-block text-rose-700 font-extrabold text-[11px] print-black-text">ไม่ลงเวลา</span>
                       ) : (
                         <>
                           <span className="font-mono">{row.timeOut}</span>
