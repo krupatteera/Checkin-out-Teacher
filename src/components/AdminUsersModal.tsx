@@ -19,7 +19,8 @@ import {
   Check,
   Bluetooth,
   UserCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Power
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { UserAccount } from '../types';
@@ -28,7 +29,8 @@ import {
   deleteUserAccount,
   resetUserMacAddress,
   approveUserAccount,
-  rejectUserAccount
+  rejectUserAccount,
+  toggleUserAccountStatus
 } from '../firebase';
 import { Swal } from '../utils/sweetAlert';
 
@@ -141,6 +143,61 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
     }
   };
 
+  // Handle Toggle User Status (เปิด - ปิด ผู้ใช้งาน)
+  const handleToggleStatus = async (u: UserAccount) => {
+    const isCurrentlyActive = u.status === 'ACTIVE' || !u.status;
+
+    if (isCurrentlyActive && u.username === currentAdminUsername) {
+      Swal.fire({
+        title: 'แจ้งเตือน',
+        text: 'คุณไม่สามารถปิดการใช้งานบัญชีผู้ดูแลระบบของตนเองที่กำลังเข้าสู่ระบบอยู่ได้',
+        icon: 'warning',
+        confirmButtonColor: '#7C3AED'
+      });
+      return;
+    }
+
+    const actionName = isCurrentlyActive ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน';
+    const targetStatus = isCurrentlyActive ? 'INACTIVE' : 'ACTIVE';
+    const confirmColor = isCurrentlyActive ? '#EF5350' : '#10B981';
+
+    const res = await Swal.fire({
+      title: `${actionName}ผู้ใช้งาน?`,
+      html: isCurrentlyActive
+        ? `<div class="text-left text-xs text-slate-600 space-y-2">
+             <p>คุณต้องการ<b>ปิดการใช้งาน (ระงับบัญชี)</b> ของ <b>${u.fullname}</b> (@${u.username}) ใช่หรือไม่?</p>
+             <p class="text-rose-600 font-semibold text-[11px]">*เมื่อปิดการใช้งาน ครูจะไม่สามารถเข้าสู่ระบบหรือลงเวลาปฏิบัติงานได้</p>
+           </div>`
+        : `<div class="text-left text-xs text-slate-600 space-y-2">
+             <p>คุณต้องการ<b>เปิดการใช้งาน</b>บัญชีของ <b>${u.fullname}</b> (@${u.username}) ใช่หรือไม่?</p>
+             <p class="text-emerald-600 font-semibold text-[11px]">*เมื่อเปิดการใช้งาน ครูสามารถเข้าสู่ระบบและลงเวลาปฏิบัติงานได้ตามปกติ</p>
+           </div>`,
+      icon: isCurrentlyActive ? 'warning' : 'question',
+      showCancelButton: true,
+      confirmButtonText: `ยืนยัน${actionName}`,
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: confirmColor
+    });
+
+    if (res.isConfirmed) {
+      try {
+        await toggleUserAccountStatus(u.id, targetStatus, currentAdminUsername);
+        Swal.fire({
+          title: 'สำเร็จ!',
+          text: `${actionName}บัญชี ${u.fullname} เรียบร้อยแล้ว`,
+          icon: 'success',
+          confirmButtonColor: '#7C3AED'
+        });
+        fetchUsers();
+        if (selectedUserForDetail && selectedUserForDetail.id === u.id) {
+          setSelectedUserForDetail({ ...selectedUserForDetail, status: targetStatus });
+        }
+      } catch (err: unknown) {
+        Swal.fire('ผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
+      }
+    }
+  };
+
   const handleResetMac = async (u: UserAccount) => {
     const res = await Swal.fire({
       title: 'รีเซ็ต Bluetooth MAC Address?',
@@ -194,7 +251,12 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
       return;
     }
 
-    const dataToExport = filteredUsers.length > 0 ? filteredUsers : users;
+    // เมื่อปิดการใช้งานแล้ว จะไม่แสดงชื่อในเอกสารในระบบทุกเอกสาร (ยกเว้นเฉพาะกรณีผู้ดูแลระบบเลือกแท็บ 'ระงับ' เพื่อตรวจสอบ)
+    const baseList = filteredUsers.length > 0 ? filteredUsers : users;
+    const dataToExport = baseList.filter((u) => {
+      if (statusFilter === 'INACTIVE') return u.status === 'INACTIVE';
+      return u.status !== 'INACTIVE';
+    });
 
     const rows = dataToExport.map((u, index) => ({
       'ลำดับ': index + 1,
@@ -518,7 +580,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {/* APPROVE BUTTON (Visible for Pending) */}
-                            {isPending && (
+                            {isPending ? (
                               <button
                                 onClick={() => handleApprove(u)}
                                 className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1 shadow-xs cursor-pointer transition-all"
@@ -526,15 +588,34 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" /> อนุมัติ
                               </button>
-                            )}
-
-                            {u.status === 'INACTIVE' && (
+                            ) : (
+                              /* ฟังก์ชั่น เปิด-ปิด ผู้ใช้งาน (Toggle Switch) */
                               <button
-                                onClick={() => handleApprove(u)}
-                                className="px-2.5 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold text-xs cursor-pointer"
-                                title="เปิดใช้งานบัญชีอีกครั้ง"
+                                type="button"
+                                onClick={() => handleToggleStatus(u)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
+                                  u.status === 'ACTIVE' || !u.status
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                }`}
+                                title={
+                                  u.status === 'ACTIVE' || !u.status
+                                    ? 'สถานะ: เปิดใช้งาน (คลิกเพื่อปิดใช้งาน/ระงับบัญชี)'
+                                    : 'สถานะ: ปิดใช้งาน (คลิกเพื่อเปิดใช้งานบัญชี)'
+                                }
                               >
-                                เปิดใช้งาน
+                                <span
+                                  className={`w-7 h-4 flex items-center rounded-full p-0.5 transition-colors ${
+                                    u.status === 'ACTIVE' || !u.status
+                                      ? 'bg-emerald-500 justify-end'
+                                      : 'bg-slate-300 justify-start'
+                                  }`}
+                                >
+                                  <span className="w-3 h-3 bg-white rounded-full shadow-xs"></span>
+                                </span>
+                                <span className="text-[11px] font-bold">
+                                  {u.status === 'ACTIVE' || !u.status ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                                </span>
                               </button>
                             )}
 
@@ -726,7 +807,7 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
 
                 {/* Action buttons in detail modal */}
                 <div className="w-full mt-4 flex items-center gap-2">
-                  {selectedUserForDetail.status === 'PENDING' && (
+                  {selectedUserForDetail.status === 'PENDING' ? (
                     <button
                       onClick={() => {
                         const target = selectedUserForDetail;
@@ -736,6 +817,23 @@ export const AdminUsersModal: React.FC<AdminUsersModalProps> = ({
                       className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" /> ยืนยันอนุมัติการใช้งาน
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(selectedUserForDetail)}
+                      className={`flex-1 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-2xs cursor-pointer border transition-all ${
+                        selectedUserForDetail.status === 'ACTIVE' || !selectedUserForDetail.status
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <Power className="w-4 h-4" />
+                      <span>
+                        {selectedUserForDetail.status === 'ACTIVE' || !selectedUserForDetail.status
+                          ? 'ปิดการใช้งาน (ระงับบัญชี)'
+                          : 'เปิดการใช้งานบัญชี'}
+                      </span>
                     </button>
                   )}
 

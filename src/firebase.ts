@@ -297,6 +297,30 @@ export async function rejectUserAccount(userId: string, adminUsername: string, r
   }
 }
 
+export async function toggleUserAccountStatus(
+  userId: string,
+  targetStatus: 'ACTIVE' | 'INACTIVE',
+  adminUsername: string
+): Promise<{ ok: boolean; message: string }> {
+  const path = `users/${userId}`;
+  try {
+    const updatePayload: Record<string, any> = {
+      status: targetStatus,
+      updatedAt: new Date().toISOString()
+    };
+    if (targetStatus === 'ACTIVE') {
+      updatePayload.approvedAt = new Date().toISOString();
+      updatePayload.approvedBy = adminUsername;
+    }
+    await updateDoc(doc(db, 'users', userId), updatePayload);
+    const actionText = targetStatus === 'ACTIVE' ? 'เปิดการใช้งานบัญชี' : 'ปิดการใช้งานบัญชี';
+    await writeSystemLog(adminUsername, 'TOGGLE_USER_STATUS', `${actionText}: ${userId}`);
+    return { ok: true, message: `${actionText} ${userId} เรียบร้อยแล้ว` };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
 export async function updateUserProfileData(userId: string, data: Partial<UserAccount>): Promise<{ ok: boolean; message: string }> {
   const path = `users/${userId}`;
   try {

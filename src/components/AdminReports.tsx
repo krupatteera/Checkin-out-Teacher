@@ -137,10 +137,19 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     latestTime?: string;
   }
 
-  const teacherAccounts = allUserAccounts.filter((u) => u.role !== 'admin');
+  // Set of inactive user identifiers (id & username) to completely exclude from all documents & reports in the system
+  const inactiveUserIds = new Set(
+    allUserAccounts
+      .filter((u) => u.status === 'INACTIVE')
+      .flatMap((u) => [u.id, u.username].filter(Boolean) as string[])
+  );
+
+  const teacherAccounts = allUserAccounts.filter(
+    (u) => u.role !== 'admin' && u.status !== 'INACTIVE'
+  );
   const userDayMap: { [uid: string]: AggregatedUserDay } = {};
 
-  // 1. Seed userDayMap with all teachers so everyone appears in the daily report
+  // 1. Seed userDayMap with all active teachers so everyone active appears in the daily report
   teacherAccounts.forEach((t) => {
     userDayMap[t.id] = {
       userId: t.id,
@@ -158,6 +167,11 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
 
   // 2. Overlay attendance records from dailyRecords
   dailyRecords.forEach((r) => {
+    // Exclude records of inactive users from all documents & reports in the system
+    if (inactiveUserIds.has(r.userId) || (r.employeeId && inactiveUserIds.has(r.employeeId))) {
+      return;
+    }
+
     const matched = teacherAccounts.find(
       (t) =>
         t.id === r.userId ||
@@ -266,6 +280,11 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   const monthSummaryMap: { [uid: string]: MonthSummaryItem } = {};
 
   monthRecords.forEach((r) => {
+    // Exclude records of inactive users from monthly report documents
+    if (inactiveUserIds.has(r.userId) || (r.employeeId && inactiveUserIds.has(r.employeeId))) {
+      return;
+    }
+
     if (!monthSummaryMap[r.userId]) {
       const uInfo = allUsers.find((u) => u.id === r.userId);
       monthSummaryMap[r.userId] = {
