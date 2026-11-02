@@ -16,7 +16,17 @@ import {
   Trash2,
   PieChart as PieChartIcon,
   ShieldCheck,
-  UserX
+  UserX,
+  Sparkles,
+  Plus,
+  Check,
+  Loader2,
+  ArrowRight,
+  CheckCircle,
+  RefreshCw,
+  Edit3,
+  UserCheck,
+  ChevronRight
 } from 'lucide-react';
 import L from 'leaflet';
 import { AttendanceRecord, SchoolConfig, SystemLog, UserAccount } from '../types';
@@ -42,6 +52,7 @@ interface AdminReportsProps {
   onMonthChange: (m: string) => void;
   onOpenHolidaysModal?: () => void;
   onOpenDeleteDataModal?: () => void;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const AdminReports: React.FC<AdminReportsProps> = ({
@@ -53,7 +64,8 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   selectedMonth,
   onMonthChange,
   onOpenHolidaysModal,
-  onOpenDeleteDataModal
+  onOpenDeleteDataModal,
+  onSelectTab
 }) => {
   const [dailyRecords, setDailyRecords] = useState<AttendanceRecord[]>([]);
   const [monthRecords, setMonthRecords] = useState<AttendanceRecord[]>([]);
@@ -62,6 +74,18 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   const [subView, setSubView] = useState<'list' | 'individual-report'>('list');
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [allUserAccounts, setAllUserAccounts] = useState<UserAccount[]>([]);
+
+  // Manual Attendance State
+  const [manualTeacherId, setManualTeacherId] = useState<string>('');
+  const [manualAction, setManualAction] = useState<'IN' | 'OUT' | 'LEAVE' | 'OFFICIAL'>('OUT');
+  const [manualTime, setManualTime] = useState<string>(() => getInternetTimeString());
+  const [manualLeaveType, setManualLeaveType] = useState<string>('ลากิจส่วนตัว');
+  const [manualLeaveReason, setManualLeaveReason] = useState<string>('');
+  const [manualOfficialTopic, setManualOfficialTopic] = useState<string>('');
+  const [manualReasonPreset, setManualReasonPreset] = useState<string>('โทรศัพท์มือถือขัดข้อง / แบตเตอรี่หมด');
+  const [manualCustomRemark, setManualCustomRemark] = useState<string>('');
+  const [manualSearchTerm, setManualSearchTerm] = useState<string>('');
+  const [submittingManual, setSubmittingManual] = useState<boolean>(false);
 
   // Map state
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -110,7 +134,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
   }, []);
 
   useEffect(() => {
-    if (activeView === 'dashboard' || activeView === 'map') {
+    if (activeView === 'dashboard' || activeView === 'map' || activeView === 'manual-clock') {
       fetchDaily(selectedDate);
     } else if (activeView === 'summary') {
       fetchMonth(selectedMonth);
@@ -123,8 +147,10 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     name: string;
     timeIn: string;
     isLate: boolean;
+    inRecordId?: string;
     timeOut: string;
     isEarly: boolean;
+    outRecordId?: string;
     leaveNote: string;
     leaveRecordId?: string;
     officialNote: string;
@@ -206,6 +232,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     if (r.action === 'IN') {
       userDayMap[key].timeIn = r.time;
       userDayMap[key].isLate = !!r.isLate;
+      userDayMap[key].inRecordId = r.id;
       userDayMap[key].lat = r.lat;
       userDayMap[key].lng = r.lng;
       userDayMap[key].distance = r.distance;
@@ -213,6 +240,7 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     } else if (r.action === 'OUT') {
       userDayMap[key].timeOut = r.time;
       userDayMap[key].isEarly = !!r.isEarly;
+      userDayMap[key].outRecordId = r.id;
       if (!userDayMap[key].lat && r.lat) {
         userDayMap[key].lat = r.lat;
         userDayMap[key].lng = r.lng;
@@ -279,15 +307,39 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
 
   const monthSummaryMap: { [uid: string]: MonthSummaryItem } = {};
 
+  // Seed monthSummaryMap with all active teachers so everyone appears in the monthly summary report
+  teacherAccounts.forEach((t) => {
+    monthSummaryMap[t.id] = {
+      userId: t.id,
+      name: t.fullname,
+      countIn: 0,
+      countLate: 0,
+      countOut: 0,
+      countEarly: 0,
+      countLeave: 0,
+      countOfficial: 0,
+      firstDateTime: ''
+    };
+  });
+
   monthRecords.forEach((r) => {
     // Exclude records of inactive users from monthly report documents
     if (inactiveUserIds.has(r.userId) || (r.employeeId && inactiveUserIds.has(r.employeeId))) {
       return;
     }
 
-    if (!monthSummaryMap[r.userId]) {
+    const matched = teacherAccounts.find(
+      (t) =>
+        t.id === r.userId ||
+        (t.username && t.username === r.userId) ||
+        t.id === r.employeeId ||
+        (t.username && t.username === r.employeeId)
+    );
+    const key = matched ? matched.id : r.userId;
+
+    if (!monthSummaryMap[key]) {
       const uInfo = allUsers.find((u) => u.id === r.userId);
-      monthSummaryMap[r.userId] = {
+      monthSummaryMap[key] = {
         userId: r.userId,
         name: r.employeeName || uInfo?.name || r.userId,
         countIn: 0,
@@ -301,20 +353,20 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
     }
 
     const dt = `${r.date || ''} ${r.time || ''}`;
-    if (!monthSummaryMap[r.userId].firstDateTime || dt < (monthSummaryMap[r.userId].firstDateTime || '')) {
-      monthSummaryMap[r.userId].firstDateTime = dt;
+    if (!monthSummaryMap[key].firstDateTime || dt < (monthSummaryMap[key].firstDateTime || '')) {
+      monthSummaryMap[key].firstDateTime = dt;
     }
 
     if (r.action === 'IN') {
-      monthSummaryMap[r.userId].countIn += 1;
-      if (r.isLate) monthSummaryMap[r.userId].countLate += 1;
+      monthSummaryMap[key].countIn += 1;
+      if (r.isLate) monthSummaryMap[key].countLate += 1;
     } else if (r.action === 'OUT') {
-      monthSummaryMap[r.userId].countOut += 1;
-      if (r.isEarly) monthSummaryMap[r.userId].countEarly += 1;
+      monthSummaryMap[key].countOut += 1;
+      if (r.isEarly) monthSummaryMap[key].countEarly += 1;
     } else if (r.action === 'LEAVE') {
-      monthSummaryMap[r.userId].countLeave += 1;
+      monthSummaryMap[key].countLeave += 1;
     } else if (r.action === 'OFFICIAL') {
-      monthSummaryMap[r.userId].countOfficial += 1;
+      monthSummaryMap[key].countOfficial += 1;
     }
   });
 
@@ -517,6 +569,146 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
       } catch (err: unknown) {
         Swal.fire('ผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
       }
+    }
+  };
+
+  const handleCancelAttendanceItem = async (recordId: string, userName: string, actionText: string) => {
+    const res = await Swal.fire({
+      title: `ยกเลิกการ${actionText}?`,
+      text: `ต้องการยกเลิกข้อมูลการ${actionText}ของ ${userName} ในวันที่ ${formatThaiDateText(selectedDate)} ใช่หรือไม่?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'ยืนยันยกเลิก',
+      cancelButtonText: 'ปิด',
+      confirmButtonColor: '#EF5350'
+    });
+
+    if (res.isConfirmed) {
+      try {
+        await cancelAttendanceItem(recordId, userName, actionText);
+        Swal.fire('สำเร็จ', `ยกเลิกการ${actionText}เรียบร้อยแล้ว`, 'success');
+        fetchDaily(selectedDate);
+      } catch (err: unknown) {
+        Swal.fire('ผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
+      }
+    }
+  };
+
+  const handleQuickClockForUser = (teacher: UserAccount, action: 'IN' | 'OUT') => {
+    const defaultTime = action === 'IN' ? (config.lateTime || '07:45') : (config.earlyTime || '16:30');
+    setManualTeacherId(teacher.id);
+    setManualAction(action);
+    setManualTime(getInternetTimeString() || defaultTime);
+    if (activeView !== 'manual-clock') {
+      onSelectTab?.('admin-manual-clock');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveManualAttendance = async () => {
+    if (!manualTeacherId) {
+      Swal.fire('กรุณาเลือกครู', 'โปรดเลือกครูหรือบุคลากรที่ต้องการลงเวลาให้', 'warning');
+      return;
+    }
+
+    const teacher = teacherAccounts.find(
+      (t) => t.id === manualTeacherId || (t.username && t.username === manualTeacherId)
+    );
+    if (!teacher) {
+      Swal.fire('ไม่พบบุคลากร', 'ไม่พบบัญชีครูที่เลือกในระบบ', 'error');
+      return;
+    }
+
+    if ((manualAction === 'IN' || manualAction === 'OUT') && !manualTime) {
+      Swal.fire('กรุณาระบุเวลา', 'โปรดระบุเวลาที่ต้องการบันทึก', 'warning');
+      return;
+    }
+
+    let actionLabel = '';
+    if (manualAction === 'IN') {
+      actionLabel = 'ลงเวลาเข้างาน (IN)';
+    } else if (manualAction === 'OUT') {
+      actionLabel = 'ลงเวลากลับ (OUT)';
+    } else if (manualAction === 'LEAVE') {
+      actionLabel = `แจ้งลาหยุด (${manualLeaveType})`;
+    } else if (manualAction === 'OFFICIAL') {
+      actionLabel = `ไปราชการ (${manualOfficialTopic || 'ปฏิบัติราชการนอกสถานที่'})`;
+    }
+
+    const reasonDetail =
+      manualReasonPreset === 'อื่นๆ'
+        ? (manualCustomRemark || 'ผู้ดูแลระบบลงเวลาแทน')
+        : `${manualReasonPreset}${manualCustomRemark ? ` (${manualCustomRemark})` : ''}`;
+
+    const confirmRes = await Swal.fire({
+      title: 'ยืนยันลงเวลาด้วยระบบ?',
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.6; padding: 12px; background: #f5f3ff; border-radius: 12px; border: 1px solid #ddd6fe;">
+          <div><b>ครู/บุคลากร:</b> ${teacher.fullname}</div>
+          <div><b>วันที่:</b> ${formatThaiDateText(selectedDate)}</div>
+          <div><b>ประเภท:</b> <span style="color: #6d28d9; font-weight: bold;">${actionLabel}</span></div>
+          ${manualAction === 'IN' || manualAction === 'OUT' ? `<div><b>เวลา:</b> ${manualTime} น.</div>` : ''}
+          <div><b>เหตุผลที่บันทึกแทน:</b> ${reasonDetail}</div>
+          <div style="font-size: 11px; color: #64748b; margin-top: 8px;">* บันทึกโดย: ผู้ดูแลระบบ (${user.fullname || user.username})</div>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'ยืนยันบันทึกเวลา',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#10B981'
+    });
+
+    if (!confirmRes.isConfirmed) return;
+
+    setSubmittingManual(true);
+    try {
+      const isLate =
+        manualAction === 'IN' && config.lateTime && manualTime > config.lateTime;
+      const isEarly =
+        manualAction === 'OUT' &&
+        config.earlyTime &&
+        manualTime < config.earlyTime;
+
+      let finalNote = '';
+      if (manualAction === 'LEAVE') {
+        finalNote = `${manualLeaveType}${manualLeaveReason ? ` - ${manualLeaveReason}` : ''} [ลงเวลาแทนโดย: ${user.fullname || user.username}]`;
+      } else if (manualAction === 'OFFICIAL') {
+        finalNote = `${manualOfficialTopic || 'ไปราชการ'} [ลงเวลาแทนโดย: ${user.fullname || user.username}]`;
+      } else {
+        finalNote = `ลงเวลาด้วยระบบ (${reasonDetail}) [ผู้บันทึก: ${user.fullname || user.username}]`;
+      }
+
+      const rec: Omit<AttendanceRecord, 'id'> = {
+        userId: teacher.id,
+        employeeId: teacher.username || teacher.id,
+        employeeName: teacher.fullname,
+        action: manualAction,
+        date: selectedDate,
+        dateThai: formatThaiDateText(selectedDate),
+        time: manualAction === 'LEAVE' || manualAction === 'OFFICIAL' ? (manualTime || '08:30') : manualTime,
+        isLate: !!isLate,
+        isEarly: !!isEarly,
+        note: finalNote,
+        lat: config.centerLat,
+        lng: config.centerLng,
+        distance: 0,
+        macAddress: 'ADMIN_MANUAL',
+        timestamp: Date.now()
+      };
+
+      const result = await saveAttendanceRecord(rec);
+      if (result.ok) {
+        await Swal.fire('บันทึกสำเร็จ!', `ลงเวลาให้คุณ ${teacher.fullname} เรียบร้อยแล้ว`, 'success');
+        await fetchDaily(selectedDate);
+      } else {
+        await Swal.fire('ผิดพลาด', result.message || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      }
+    } catch (err: unknown) {
+      console.error('Manual attendance error:', err);
+      Swal.fire('เกิดข้อผิดพลาด', err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setSubmittingManual(false);
     }
   };
 
@@ -1010,12 +1202,20 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                   แสดงรายชื่อครูทุกคน พร้อมสถานะการลงเวลากลับ ลา และไม่ลงเวลา
                 </p>
               </div>
-              <button
-                onClick={() => printReport('รายงานการลงเวลาประจำวัน', 'dailyAttendanceTable')}
-                className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-[11px] sm:text-xs font-semibold hover:bg-purple-50 hover:text-[#7C3AED] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <Printer className="w-3.5 h-3.5" /> พิมพ์รายงาน (A4)
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onSelectTab?.('admin-manual-clock')}
+                  className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] sm:text-xs font-bold hover:bg-emerald-100 inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Clock className="w-3.5 h-3.5 text-emerald-600" /> ลงเวลาด้วยระบบ (Manual)
+                </button>
+                <button
+                  onClick={() => printReport('รายงานการลงเวลาประจำวัน', 'dailyAttendanceTable')}
+                  className="self-start sm:self-auto px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-[11px] sm:text-xs font-semibold hover:bg-purple-50 hover:text-[#7C3AED] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Printer className="w-3.5 h-3.5" /> พิมพ์รายงาน (A4)
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto p-1.5 sm:p-2">
@@ -1092,6 +1292,29 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
                               className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
                             >
                               <Trash2 className="w-3 h-3" /> ยกเลิกราชการ
+                            </button>
+                          ) : item.outRecordId ? (
+                            <button
+                              onClick={() => handleCancelAttendanceItem(item.outRecordId!, item.name, 'เวลากลับ')}
+                              className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
+                              title="ยกเลิกเวลากลับ"
+                            >
+                              <Trash2 className="w-3 h-3" /> ยกเลิก
+                            </button>
+                          ) : isNotOut ? (
+                            <button
+                              onClick={() => {
+                                const teacher = teacherAccounts.find(
+                                  (t) => t.id === item.userId || (t.username && t.username === item.userId)
+                                );
+                                if (teacher) {
+                                  handleQuickClockForUser(teacher, 'OUT');
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1 border border-emerald-200"
+                              title="ลงเวลากลับแทนครู"
+                            >
+                              <Clock className="w-3 h-3 text-emerald-600" /> ลงเวลาแทน
                             </button>
                           ) : (
                             '-'
@@ -1325,6 +1548,646 @@ export const AdminReports: React.FC<AdminReportsProps> = ({
           </div>
         </div>
       )}
+
+      {/* VIEW: MANUAL CLOCK-IN / OUT (ลงเวลาด้วยระบบ โดยผู้ดูแลระบบ) */}
+      {activeView === 'manual-clock' && (() => {
+        const selectedTeacher = teacherAccounts.find(
+          (t) => t.id === manualTeacherId || (t.username && t.username === manualTeacherId)
+        );
+        const selectedTeacherDay = selectedTeacher ? userDayMap[selectedTeacher.id] : null;
+
+        const filteredTeacherAccounts = teacherAccounts.filter((t) => {
+          if (!manualSearchTerm.trim()) return true;
+          const query = manualSearchTerm.toLowerCase();
+          return (
+            t.fullname.toLowerCase().includes(query) ||
+            (t.position && t.position.toLowerCase().includes(query)) ||
+            (t.department && t.department.toLowerCase().includes(query)) ||
+            (t.username && t.username.toLowerCase().includes(query))
+          );
+        });
+
+        const isLateCheck =
+          manualAction === 'IN' && config.lateTime && manualTime > config.lateTime;
+        const isEarlyCheck =
+          manualAction === 'OUT' &&
+          config.earlyTime &&
+          manualTime < config.earlyTime;
+
+        const totalMarkedOut = teacherAccounts.filter(
+          (t) => userDayMap[t.id]?.timeOut && userDayMap[t.id]?.timeOut !== '-'
+        ).length;
+        const totalPendingOut = teacherAccounts.length - totalMarkedOut;
+
+        return (
+          <div className="space-y-4 sm:space-y-6">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-green-700 rounded-2xl sm:rounded-3xl p-4 sm:p-6 text-white shadow-lg shadow-emerald-900/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-emerald-50 text-[11px] font-bold border border-white/25 mb-2 backdrop-blur-md">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>ฟังก์ชันเฉพาะผู้ดูแลระบบ (Admin Manual Clock)</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black flex items-center gap-2.5 text-white">
+                  <Clock className="w-6 h-6 text-emerald-200" /> ลงเวลาด้วยระบบ
+                </h2>
+                <p className="text-xs sm:text-sm text-emerald-100 mt-1 max-w-2xl leading-relaxed">
+                  สำหรับผู้ดูแลระบบบันทึกเวลาแทนครูและบุคลากรรายบุคคล ในกรณีที่ครูไม่สามารถลงเวลาด้วยตนเองได้ (เช่น โทรศัพท์มือถือแบตเตอรี่หมด, อุปกรณ์ขัดข้อง, ลืมลงเวลา, หรือเหตุจำเป็นเร่งด่วน)
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5 bg-white/10 p-3 rounded-2xl border border-white/20 backdrop-blur-md">
+                <div className="text-left sm:text-right">
+                  <div className="text-[10px] text-emerald-200 font-bold uppercase tracking-wider">วันที่ดำเนินการ</div>
+                  <div className="text-xs text-white font-medium">{formatThaiDateText(selectedDate)}</div>
+                </div>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => onDateChange(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-white text-slate-800 text-xs font-mono font-bold border border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer shadow-xs"
+                />
+              </div>
+            </div>
+
+            {/* Quick Stats Pill Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+              <div className="bg-white p-3 sm:p-4 rounded-2xl border border-purple-100 shadow-xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-[#7C3AED] flex items-center justify-center font-bold">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold">ครูทั้งหมด</div>
+                  <div className="text-base sm:text-lg font-black text-slate-800">{teacherAccounts.length} คน</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 sm:p-4 rounded-2xl border border-emerald-100 shadow-xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold">ลงเวลากลับแล้ว</div>
+                  <div className="text-base sm:text-lg font-black text-emerald-700">{totalMarkedOut} คน</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 sm:p-4 rounded-2xl border border-rose-100 shadow-xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold">ยังไม่ลงเวลากลับ</div>
+                  <div className="text-base sm:text-lg font-black text-rose-600">{totalPendingOut} คน</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 sm:p-4 rounded-2xl border border-sky-100 shadow-xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+                  <CalendarOff className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold">ลา / ไปราชการ</div>
+                  <div className="text-base sm:text-lg font-black text-sky-700">{totalLeave + totalOfficial} คน</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Interactive Form Card */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+              {/* Left Column: Select Teacher Card */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-purple-100 shadow-sm p-4 sm:p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                      <UserCheck className="w-4 h-4 text-emerald-600" /> ขั้นตอนที่ 1: เลือกครู / บุคลากร
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      พร้อมใช้งาน {teacherAccounts.length} คน
+                    </span>
+                  </div>
+
+                  {/* Teacher Dropdown Selector */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        ค้นหาและเลือกรายชื่อครู
+                      </label>
+                      <select
+                        value={manualTeacherId}
+                        onChange={(e) => setManualTeacherId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="">-- กรุณาคลิกเลือกครู / บุคลากร --</option>
+                        {teacherAccounts.map((t) => {
+                          const dayStatus = userDayMap[t.id];
+                          const hasOut = dayStatus && dayStatus.timeOut !== '-';
+                          const hasIn = dayStatus && dayStatus.timeIn !== '-';
+                          const statusTag = hasOut
+                            ? `(กลับแล้ว ${dayStatus.timeOut} น.)`
+                            : hasIn
+                            ? `(เข้างานแล้ว ${dayStatus.timeIn} น.)`
+                            : `(ยังไม่ลงเวลา)`;
+                          return (
+                            <option key={t.id} value={t.id}>
+                              {t.fullname} - {t.position || 'ครู'} {statusTag}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* Teacher Details Card (when selected) */}
+                    {selectedTeacher ? (
+                      <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={
+                              selectedTeacher.img ||
+                              `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                selectedTeacher.fullname
+                              )}&background=10B981&color=fff`
+                            }
+                            alt={selectedTeacher.fullname}
+                            className="w-12 h-12 rounded-2xl object-cover border-2 border-emerald-300 shadow-xs shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-extrabold text-sm text-slate-800 truncate">
+                              {selectedTeacher.fullname}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {selectedTeacher.position || 'ครูผู้สอน'} • {selectedTeacher.department || 'กลุ่มสาระการเรียนรู้'}
+                            </p>
+                            <span className="text-[10px] text-emerald-800 font-mono font-bold">
+                              @{selectedTeacher.username || selectedTeacher.id}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setManualTeacherId('')}
+                            className="text-[11px] text-slate-400 hover:text-rose-600 font-bold px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                          >
+                            ล้าง
+                          </button>
+                        </div>
+
+                        {/* Today's status for this teacher */}
+                        <div className="pt-2 border-t border-emerald-100 grid grid-cols-2 gap-2 text-center">
+                          <div className="p-2 rounded-xl bg-white border border-emerald-100">
+                            <div className="text-[10px] text-slate-400 font-bold">เวลาเข้างาน (IN)</div>
+                            <div className="text-xs font-mono font-black text-slate-700 mt-0.5">
+                              {selectedTeacherDay?.timeIn !== '-' ? `${selectedTeacherDay?.timeIn} น.` : '-'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-xl bg-white border border-emerald-100">
+                            <div className="text-[10px] text-slate-400 font-bold">เวลากลับ (OUT)</div>
+                            <div className="text-xs font-mono font-black text-emerald-700 mt-0.5">
+                              {selectedTeacherDay?.timeOut !== '-' ? `${selectedTeacherDay?.timeOut} น.` : 'ยังไม่ลงเวลา'}
+                            </div>
+                          </div>
+                          {selectedTeacherDay?.leaveNote !== '-' && (
+                            <div className="col-span-2 p-2 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-800 font-bold">
+                              สถานะการลา: {selectedTeacherDay?.leaveNote}
+                            </div>
+                          )}
+                          {selectedTeacherDay?.officialNote !== '-' && (
+                            <div className="col-span-2 p-2 rounded-xl bg-purple-50 border border-purple-200 text-[11px] text-purple-800 font-bold">
+                              ไปราชการ: {selectedTeacherDay?.officialNote}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-slate-400">
+                        <Users className="w-8 h-8 mx-auto mb-1.5 opacity-40 text-emerald-600" />
+                        <p className="text-xs font-medium">กรุณาเลือกครูหรือบุคลากรจากรายการด้านบน</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">หรือคลิกปุ่ม "ลงเวลาแทน" ในตารางด้านล่าง</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Attendance Action Details */}
+              <div className="lg:col-span-7 space-y-4">
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-purple-100 shadow-sm p-4 sm:p-5 space-y-4">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                    <Edit3 className="w-4 h-4 text-emerald-600" /> ขั้นตอนที่ 2: ระบุประเภทและเวลา
+                  </h3>
+
+                  {/* 1. Action Type Selection */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-2">
+                      ประเภทรายการ (Action)
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualAction('OUT');
+                          setManualTime(getInternetTimeString() || config.earlyTime || '16:30');
+                        }}
+                        className={`p-3 rounded-2xl border font-bold text-xs flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          manualAction === 'OUT'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-md shadow-amber-500/25 scale-[1.02]'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50 hover:text-amber-700'
+                        }`}
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>ลงเวลากลับ (OUT)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualAction('IN');
+                          setManualTime(getInternetTimeString() || config.lateTime || '07:45');
+                        }}
+                        className={`p-3 rounded-2xl border font-bold text-xs flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          manualAction === 'IN'
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-md shadow-emerald-600/25 scale-[1.02]'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700'
+                        }`}
+                      >
+                        <Clock className="w-4 h-4" />
+                        <span>ลงเวลาเข้า (IN)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setManualAction('LEAVE')}
+                        className={`p-3 rounded-2xl border font-bold text-xs flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          manualAction === 'LEAVE'
+                            ? 'bg-sky-500 text-white border-sky-600 shadow-md shadow-sky-500/25 scale-[1.02]'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-sky-50 hover:text-sky-700'
+                        }`}
+                      >
+                        <CalendarOff className="w-4 h-4" />
+                        <span>แจ้งลาหยุด</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setManualAction('OFFICIAL')}
+                        className={`p-3 rounded-2xl border font-bold text-xs flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          manualAction === 'OFFICIAL'
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-md shadow-purple-600/25 scale-[1.02]'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-purple-50 hover:text-purple-700'
+                        }`}
+                      >
+                        <Briefcase className="w-4 h-4" />
+                        <span>ไปราชการ</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. Time Input & Presets (for IN and OUT) */}
+                  {(manualAction === 'IN' || manualAction === 'OUT') && (
+                    <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-500" /> ระบุเวลาที่ต้องการบันทึก (HH:mm)
+                        </label>
+                        {/* Status preview */}
+                        {isLateCheck ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                            ⚠️ มาสาย (เกินเวลา {config.lateTime || '08:30'} น.)
+                          </span>
+                        ) : isEarlyCheck ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+                            ⚠️ กลับก่อนเวลา (ก่อน {config.earlyTime || '16:30'} น.)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            ✓ เวลาปกติ
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <input
+                          type="time"
+                          value={manualTime}
+                          onChange={(e) => setManualTime(e.target.value)}
+                          className="px-3.5 py-2 rounded-xl border border-slate-300 font-mono text-base font-bold bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-500"
+                        />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setManualTime(getInternetTimeString())}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[11px] transition-colors cursor-pointer"
+                          >
+                            เวลาปัจจุบัน
+                          </button>
+                          {manualAction === 'OUT' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setManualTime(config.earlyTime || '16:30')}
+                                className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] transition-colors cursor-pointer"
+                              >
+                                {config.earlyTime || '16:30'} น. (ปกติ)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setManualTime('16:00')}
+                                className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] transition-colors cursor-pointer"
+                              >
+                                16:00 น.
+                              </button>
+                            </>
+                          )}
+                          {manualAction === 'IN' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setManualTime('07:45')}
+                                className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] transition-colors cursor-pointer"
+                              >
+                                07:45 น. (เช้า)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setManualTime('08:00')}
+                                className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] transition-colors cursor-pointer"
+                              >
+                                08:00 น.
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Leave Fields (if LEAVE) */}
+                  {manualAction === 'LEAVE' && (
+                    <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-sky-900 mb-1">
+                          ประเภทการลาหยุด
+                        </label>
+                        <select
+                          value={manualLeaveType}
+                          onChange={(e) => setManualLeaveType(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs font-bold text-sky-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                        >
+                          <option value="ลากิจส่วนตัว">ลากิจส่วนตัว</option>
+                          <option value="ลาป่วย">ลาป่วย</option>
+                          <option value="ลาพักผ่อน">ลาพักผ่อน</option>
+                          <option value="ลาคลอดบุตร">ลาคลอดบุตร</option>
+                          <option value="ลาอุปสมบทหรือพิธีฮัจญ์">ลาอุปสมบทหรือพิธีฮัจญ์</option>
+                          <option value="ลาเข้ารับการตรวจเลือกฯ">ลาเข้ารับการตรวจเลือกฯ</option>
+                          <option value="อื่นๆ">อื่นๆ</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-sky-900 mb-1">
+                          เหตุผล / รายละเอียดการลา (ถ้ามี)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น มีธุระส่วนตัวจำเป็น, มีใบรับรองแพทย์"
+                          value={manualLeaveReason}
+                          onChange={(e) => setManualLeaveReason(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-sky-300 text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Official Duty Fields (if OFFICIAL) */}
+                  {manualAction === 'OFFICIAL' && (
+                    <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-purple-900 mb-1">
+                          หัวข้อ / สถานที่ไปราชการ
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น เข้าร่วมการประชุมสัมมนา ณ สพป., อบรมเชิงปฏิบัติการ"
+                          value={manualOfficialTopic}
+                          onChange={(e) => setManualOfficialTopic(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-purple-300 text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. Reason Preset for Manual Entry */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1.5">
+                      สาเหตุหรือเหตุผลที่ผู้ดูแลระบบลงเวลาแทน (Audit Note)
+                    </label>
+                    <select
+                      value={manualReasonPreset}
+                      onChange={(e) => setManualReasonPreset(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2 cursor-pointer"
+                    >
+                      <option value="โทรศัพท์มือถือขัดข้อง / แบตเตอรี่หมด">โทรศัพท์มือถือขัดข้อง / แบตเตอรี่หมด</option>
+                      <option value="ระบบเครือข่ายสัญญาณหรือ GPS ขัดข้อง">ระบบเครือข่ายสัญญาณหรือ GPS ขัดข้อง</option>
+                      <option value="ลืมลงเวลา (ครูมาปฏิบัติหน้าที่จริง)">ลืมลงเวลา (ครูมาปฏิบัติหน้าที่จริง)</option>
+                      <option value="ปฏิบัติภารกิจเร่งด่วนตามคำสั่งผู้บริหาร">ปฏิบัติภารกิจเร่งด่วนตามคำสั่งผู้บริหาร</option>
+                      <option value="อื่นๆ">อื่นๆ (ระบุหมายเหตุเอง)</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+                      value={manualCustomRemark}
+                      onChange={(e) => setManualCustomRemark(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      disabled={!manualTeacherId || submittingManual}
+                      onClick={handleSaveManualAttendance}
+                      className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-sm shadow-lg shadow-emerald-800/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {submittingManual ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> กำลังบันทึกเวลาแทนครู...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" /> ยืนยันบันทึกเวลาแทนครู (Save)
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                      * ระบบจะบันทึกว่าเป็นการลงเวลาด้วยระบบโดยแอดมิน ({user.fullname || user.username}) และอัปเดตรายงานทันที
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Action Teacher List Table */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-purple-100 shadow-sm overflow-hidden p-3.5 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-emerald-600" /> ตารางสถานะและลงเวลาด่วนในวันที่ {formatThaiDateText(selectedDate)}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    คลิก "ลงเวลากลับ" เพื่อบันทึกเวลากลับด่วน หรือคลิก "เลือก" เพื่อเลือกครูไปจัดการด้านบน
+                  </p>
+                </div>
+                {/* Search box */}
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="ค้นหาชื่อหรือตำแหน่ง..."
+                    value={manualSearchTerm}
+                    onChange={(e) => setManualSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-700 min-w-[650px]">
+                  <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-3 text-center">ลำดับ</th>
+                      <th className="px-3 py-3">ครู / บุคลากร</th>
+                      <th className="px-3 py-3 text-center">เวลาเข้า (IN)</th>
+                      <th className="px-3 py-3 text-center">เวลากลับ (OUT)</th>
+                      <th className="px-3 py-3 text-center">ลา / ราชการ</th>
+                      <th className="px-3 py-3 text-center">การจัดการด่วน</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredTeacherAccounts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-8 text-slate-400">
+                          ไม่พบข้อมูลครูที่ค้นหา
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTeacherAccounts.map((t, idx) => {
+                        const dayStatus = userDayMap[t.id];
+                        const isNotOut = !dayStatus || (dayStatus.timeOut === '-' && dayStatus.leaveNote === '-' && dayStatus.officialNote === '-');
+
+                        return (
+                          <tr key={t.id} className="hover:bg-emerald-50/20 transition-colors">
+                            <td className="px-3 py-2.5 text-center font-bold text-slate-400 font-mono">
+                              {idx + 1}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <img
+                                  src={
+                                    t.img ||
+                                    `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                      t.fullname
+                                    )}&background=10B981&color=fff`
+                                  }
+                                  alt={t.fullname}
+                                  className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-800 text-xs truncate">{t.fullname}</div>
+                                  <div className="text-[10px] text-slate-400 truncate">{t.position || 'ครูผู้สอน'}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-mono">
+                              {dayStatus && dayStatus.timeIn !== '-' ? (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+                                  {dayStatus.timeIn} น.
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-mono">
+                              {dayStatus && dayStatus.timeOut !== '-' ? (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold border border-amber-200">
+                                  {dayStatus.timeOut} น.
+                                </span>
+                              ) : isNotOut ? (
+                                <span className="px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[10px] font-bold border border-red-200">
+                                  ยังไม่ลงเวลา
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {dayStatus && dayStatus.leaveNote !== '-' ? (
+                                <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-medium border border-sky-200">
+                                  {dayStatus.leaveNote}
+                                </span>
+                              ) : dayStatus && dayStatus.officialNote !== '-' ? (
+                                <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium border border-purple-200">
+                                  {dayStatus.officialNote}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {isNotOut ? (
+                                  <button
+                                    onClick={() => handleQuickClockForUser(t, 'OUT')}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                    title="ลงเวลากลับแทนทันที"
+                                  >
+                                    <Clock className="w-3 h-3" /> ลงเวลากลับ
+                                  </button>
+                                ) : dayStatus && dayStatus.outRecordId ? (
+                                  <button
+                                    onClick={() => handleCancelAttendanceItem(dayStatus.outRecordId!, t.fullname, 'เวลากลับ')}
+                                    className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[10px] inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="ยกเลิกเวลากลับ"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> ยกเลิก
+                                  </button>
+                                ) : dayStatus && dayStatus.leaveRecordId ? (
+                                  <button
+                                    onClick={() => handleCancelLeave(dayStatus)}
+                                    className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[10px] inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> ยกเลิกลา
+                                  </button>
+                                ) : dayStatus && dayStatus.officialRecordId ? (
+                                  <button
+                                    onClick={() => handleCancelOfficial(dayStatus)}
+                                    className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[10px] inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" /> ยกเลิก
+                                  </button>
+                                ) : null}
+
+                                <button
+                                  onClick={() => {
+                                    setManualTeacherId(t.id);
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] cursor-pointer"
+                                >
+                                  เลือก
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -98,7 +98,7 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
 
   // Active view tab
-  const [currentTab, setCurrentTab] = useState<'teacher-dashboard' | 'home' | 'teacher-report' | 'admin-dashboard' | 'admin-summary' | 'admin-map'>('teacher-dashboard');
+  const [currentTab, setCurrentTab] = useState<'teacher-dashboard' | 'home' | 'teacher-report' | 'admin-dashboard' | 'admin-summary' | 'admin-map' | 'admin-manual-clock'>('teacher-dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Attendance user data (Teachers only)
@@ -1112,6 +1112,18 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => setCurrentTab('admin-manual-clock')}
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
+                currentTab === 'admin-manual-clock'
+                  ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-900/20'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>ลงเวลาด้วยระบบ (Manual)</span>
+            </button>
+
+            <button
               onClick={() => setUsersModalOpen(true)}
               className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-bold whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-[#7C3AED] transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer"
             >
@@ -1667,6 +1679,7 @@ export default function App() {
               onMonthChange={setSelectedAdminMonth}
               onOpenHolidaysModal={() => setHolidaysModalOpen(true)}
               onOpenDeleteDataModal={() => setDeleteDataModalOpen(true)}
+              onSelectTab={(tab) => setCurrentTab(tab as any)}
             />
           )}
         </main>

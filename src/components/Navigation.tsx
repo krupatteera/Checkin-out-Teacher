@@ -468,6 +468,26 @@ export const Navigation: React.FC<NavigationProps> = ({
                 <li>
                   <button
                     onClick={() => {
+                      onSelectTab('admin-manual-clock');
+                      onCloseMobileMenu();
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer group ${
+                      currentTab === 'admin-manual-clock'
+                        ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-800/20'
+                        : 'text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/70 hover:translate-x-1'
+                    }`}
+                  >
+                    <Clock className="w-4 h-4 text-emerald-600 transition-transform group-hover:scale-110" />
+                    <span className="flex-1 text-left">ลงเวลาด้วยระบบ (Manual)</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-200 text-emerald-900 font-bold">
+                      แทนครู
+                    </span>
+                  </button>
+                </li>
+
+                <li>
+                  <button
+                    onClick={() => {
                       onCloseMobileMenu();
                       onOpenUsersModal();
                     }}
@@ -726,13 +746,13 @@ export const Navigation: React.FC<NavigationProps> = ({
             </button>
 
             <button
-              onClick={() => onSelectTab('admin-map')}
+              onClick={() => onSelectTab('admin-manual-clock')}
               className={`flex-1 flex flex-col items-center py-1 transition-all cursor-pointer ${
-                currentTab === 'admin-map' ? 'text-[#7C3AED] scale-105 font-bold' : 'text-slate-400 hover:text-slate-600'
+                currentTab === 'admin-manual-clock' ? 'text-emerald-600 scale-105 font-bold' : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="text-[9px] sm:text-[10px] font-bold mt-0.5 truncate">แผนที่</span>
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
+              <span className="text-[9px] sm:text-[10px] font-bold mt-0.5 truncate text-emerald-700">ลงเวลาแทน</span>
             </button>
 
             <button
